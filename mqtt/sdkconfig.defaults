@@ -1,0 +1,11 @@
+# Enable the built-in certificate bundle for TLS server verification
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
+CONFIG_EXAMPLE_MQTT_BROKER_URI="mqtt://mqtts.heclouds.com:1883"
+
+# Wi-Fi断开后持续重试，获取IP后由现有事件回调恢复联网状态。
+CONFIG_EXAMPLE_WIFI_CONN_MAX_RETRY=-1
+
+# 保留2MiB Flash及既有NVS地址，扩大应用分区以容纳H7固件转发功能。
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y

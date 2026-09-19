@@ -1,0 +1,69 @@
+# =========================================================
+# STM32H7 Terminal - repository ignore rules
+# =========================================================
+
+# ---------- Keil MDK-ARM build output ----------
+# Per-target output folders (objects, axf, hex, map, dep, lnp).
+# Paths are listed explicitly because the target folder name equals the
+# project folder name one level up.
+Clean/MDK-ARM/Clean/
+bootloader/bootloader/MDK-ARM/bootloader/
+wangguan/MDK-ARM/wangguan/
+*.o
+*.axf
+*.elf
+*.hex
+*.bin
+*.map
+*.lnp
+*.dep
+*.crf
+*.d
+*.htm
+*.build_log.htm
+*.sct.Bak
+*_sct.Bak
+*.uvguix.*
+*.bak
+*.tmp
+
+# ---------- ESP-IDF / CMake build output ----------
+mqtt/build/
+mqtt/build_ota_fix/
+**/CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+build.ninja
+.flash_args
+sdkconfig.old
+*.pio/
+.pio/
+
+# ---------- Compiled host binaries ----------
+*.exe
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+pc_gateway/_tmptest/
+
+# ---------- Office / OS noise ----------
+~$*
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.log
+*.swp
+*~
+
+# ---------- Editor / IDE user state ----------
+.vscode/ipch/
+.idea/workspace.xml
+.idea/shelf/
+*.suo
+*.user
