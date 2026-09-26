@@ -15,6 +15,19 @@ typedef enum {
     MODBUS_ARGUMENT_ERROR
 } ModbusStatus;
 
+typedef struct {
+    bool tx_started;
+    bool tx_complete;
+    uint16_t rx_bytes;
+} ModbusDiagnostics;
+
+/**
+  * @brief 读取指定站号最近一次事务的收发诊断信息。
+  * @param address 站号1或2；diagnostics为诊断信息输出地址。
+  * @retval true表示已有该站号的事务记录。
+  */
+bool Modbus_GetDiagnostics(uint8_t address, ModbusDiagnostics *diagnostics);
+
 /**
   * @brief 绑定9600、8N1的USART2和PA0收发控制，在内核初始化后调用一次。
   * @param uart 已完成硬件初始化的USART2句柄。

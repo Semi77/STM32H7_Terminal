@@ -26,10 +26,12 @@ void app_ui_create(void);
   * @param status_text 状态短标签（如"OK"）；NULL表示尚无快照。
   * @param success_count 累计成功次数。
   * @param error_count 累计失败次数。
+  * @param tx_started 本次请求是否开始发送；tx_complete表示发送完成；rx_bytes为接收字节数。
   * @retval 无，必须从LVGL所在线程调用。
   */
 void app_ui_update_modbus_readout(const char *status_text,
-                                  uint32_t success_count, uint32_t error_count);
+                                  uint32_t success_count, uint32_t error_count,
+                                  bool tx_started, bool tx_complete, uint16_t rx_bytes);
 
 /**
   * @brief 只刷新上传帧序号标签，温湿度由RS485采样独立驱动。

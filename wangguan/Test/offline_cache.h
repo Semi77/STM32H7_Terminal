@@ -12,6 +12,11 @@ typedef struct {
 } GatewaySample;
 
 /**
+  * @brief 缓存扫描进度：0表示尚未扫描，UINT32_MAX表示结束，其余值为已扫描扇区数。
+  */
+extern volatile uint32_t g_offline_cache_scan_sectors;
+
+/**
   * @brief 扫描后4MB缓存并预留不重复的序号区间，仅由上传任务调用。
   * @retval true表示恢复成功，false表示存储故障。
   */

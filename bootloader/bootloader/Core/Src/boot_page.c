@@ -146,6 +146,72 @@ static bool display_page(void)
     return ILI9341_FillRect(40U, 140U, 236U, 4U, ILI9341_COLOR_CYAN) == HAL_OK;
 }
 
+typedef struct {
+    char code;
+    uint8_t columns[5];
+} BootErrorGlyph;
+
+/* 错误提示只保留所需的5x7字形，避免引入完整字体库。 */
+static const BootErrorGlyph boot_error_glyphs[] = {
+    {' ',{0,0,0,0,0}}, {'0',{0x3E,0x51,0x49,0x45,0x3E}},
+    {'1',{0,0x42,0x7F,0x40,0}}, {'2',{0x42,0x61,0x51,0x49,0x46}},
+    {'3',{0x21,0x41,0x45,0x4B,0x31}}, {'4',{0x18,0x14,0x12,0x7F,0x10}},
+    {'5',{0x27,0x45,0x45,0x45,0x39}}, {'6',{0x3C,0x4A,0x49,0x49,0x30}},
+    {'7',{0x01,0x71,0x09,0x05,0x03}}, {'8',{0x36,0x49,0x49,0x49,0x36}},
+    {'9',{0x06,0x49,0x49,0x29,0x1E}}, {'A',{0x7E,0x11,0x11,0x11,0x7E}},
+    {'B',{0x7F,0x49,0x49,0x49,0x36}}, {'C',{0x3E,0x41,0x41,0x41,0x22}},
+    {'D',{0x7F,0x41,0x41,0x22,0x1C}}, {'E',{0x7F,0x49,0x49,0x49,0x41}},
+    {'F',{0x7F,0x09,0x09,0x09,0x01}}, {'G',{0x3E,0x41,0x49,0x49,0x7A}},
+    {'H',{0x7F,0x08,0x08,0x08,0x7F}}, {'I',{0,0x41,0x7F,0x41,0}},
+    {'L',{0x7F,0x40,0x40,0x40,0x40}}, {'M',{0x7F,0x02,0x0C,0x02,0x7F}},
+    {'N',{0x7F,0x04,0x08,0x10,0x7F}}, {'O',{0x3E,0x41,0x41,0x41,0x3E}},
+    {'R',{0x7F,0x09,0x19,0x29,0x46}}, {'S',{0x46,0x49,0x49,0x49,0x31}},
+    {'T',{0x01,0x01,0x7F,0x01,0x01}}, {'U',{0x3F,0x40,0x40,0x40,0x3F}},
+    {'V',{0x1F,0x20,0x40,0x20,0x1F}}, {'Y',{0x07,0x08,0x70,0x08,0x07}},
+    {0,{0,0,0,0,0}}
+};
+
+/**
+  * @brief 将恢复错误码映射为屏幕上的简短英文原因。
+  * @param code OtaInstall_Recover返回的OTA错误码。
+  * @retval 对应原因文本，未知错误返回OTHER。
+  */
+static const char *boot_error_reason(uint32_t code)
+{
+    switch (code) {
+    case OTA_BAD_FRAME: return "FRAME";
+    case OTA_BAD_STATE: return "STATE";
+    case OTA_BAD_OFFSET: return "OFFSET";
+    case OTA_FLASH_ERROR: return "FLASH";
+    case OTA_CRC_ERROR: return "CRC";
+    case OTA_BAD_IMAGE: return "IMAGE";
+    case OTA_BUSY: return "BUSY";
+    case OTA_RECOVERY_REQUIRED: return "RECOVERY";
+    default: return "OTHER";
+    }
+}
+
+/**
+  * @brief 在屏幕底部绘制恢复错误码和原因，不覆盖OTA进度格。
+  * @param code OtaInstall_Recover返回的OTA错误码。
+  * @retval 无，屏幕写入失败时保留原有红色错误格。
+  */
+static void display_error(uint32_t code)
+{
+    char text[24];
+    uint16_t x=46U;
+    (void)snprintf(text,sizeof(text),"ERR %02lu %s",(unsigned long)code,boot_error_reason(code));
+    if (ILI9341_FillRect(40U,207U,236U,20U,0x7800U)!=HAL_OK) return;
+    for (const char *p=text; *p && x<270U; ++p, x+=12U) {
+        const BootErrorGlyph *glyph=boot_error_glyphs;
+        while (glyph->code && glyph->code!=*p) ++glyph;
+        for (uint16_t col=0; col<5U; ++col)
+            for (uint16_t row=0; row<7U; ++row)
+                if (glyph->columns[col] & (1U<<row))
+                    (void)ILI9341_FillRect(x+col*2U,210U+row*2U,2U,2U,ILI9341_COLOR_WHITE);
+    }
+}
+
 /**
   * @brief 发送以换行结束的状态文本，text为零结尾字符串。
   * @retval 无，发送失败会在下一次心跳重试。
@@ -166,7 +232,10 @@ void BootPage_Run(void)
     bool app_valid = recovery==OTA_OK && BootJump_IsApplicationValid(APP_FLASH_BASE,APP_FLASH_END);
     if (recovery==OTA_OK && !requested && app_valid && OtaInstall_BeforeBoot())
         BootJump_ToApplication(APP_FLASH_BASE);
-    if (recovery!=OTA_OK) OtaFlash_Progress(0,0,5);
+    if (recovery!=OTA_OK) {
+        OtaFlash_Progress(0,0,5);
+        if (screen_ok) display_error(recovery);
+    }
     uint32_t last_status = HAL_GetTick() - 1000U;
     char line[24];
     uint32_t used = 0;

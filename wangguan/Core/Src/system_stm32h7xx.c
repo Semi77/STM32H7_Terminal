@@ -304,7 +304,7 @@ void SystemInit (void)
     CLEAR_BIT(RCC->AHB3ENR, RCC_AHB3ENR_FMCEN);
   }
 
-  /* 网关应用固定在Bank2运行，直接下载调试或引导跳转均使用同一向量表。 */
+  /* 网关应用固定使用活动Bank的第二扇区，交换后向量地址保持不变。 */
   SCB->VTOR = 0x08020000U;
   __DSB();
   __ISB();

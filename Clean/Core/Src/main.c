@@ -340,18 +340,16 @@ static HAL_StatusTypeDef Clean_EraseEntireFlash(uint32_t *out_elapsed_ms)
 }
 
 /**
-  * @brief 抽样读回整个地址空间，确认全部为0xFF。
-  * @retval HAL_OK表示抽样点均为空；HAL_ERROR表示仍有非空数据。
+    * @brief 逐块读回整片外部Flash，确认每个字节均为0xFF。
+    * @retval HAL_OK表示整片为空；HAL_ERROR表示读取失败或仍有非空数据。
   */
 static HAL_StatusTypeDef Clean_VerifyBlank(void)
 {
   const uint32_t total = W25Q64_FLASH_SIZE_BYTES;
-  const uint32_t samples = 64U;
-  uint8_t scratch[32];
+  uint8_t scratch[1024];
 
-  for (uint32_t i = 0U; i < samples; ++i)
+  for (uint32_t address = 0U; address < total; address += sizeof(scratch))
   {
-    uint32_t address = (total / samples) * i;
     if (W25Q64_ReadData(address, scratch, sizeof(scratch)) != HAL_OK) return HAL_ERROR;
     for (uint32_t j = 0U; j < sizeof(scratch); ++j)
     {
@@ -400,7 +398,6 @@ int main(void)
   MX_GPIO_Init();
   MX_USART3_UART_Init();
   MX_SPI1_Init();
-  MX_QSPI_Init();
   /* USER CODE BEGIN 2 */
   clean_link = huart3;
   clean_report_index = 0U;
@@ -413,6 +410,7 @@ int main(void)
     Screen_Init();
   }
 
+  MX_QSPI_Init();
   Clean_Report("W25Q64 FULL ERASE START", 0U, W25Q64_FLASH_SIZE_BYTES, 0U);
 
   uint8_t manufacturer = 0U;
@@ -542,6 +540,10 @@ void SystemClock_Config(void)
   */
 static void MX_USART3_UART_Init(void)
 {
+  /* 自检上报绕开Cube MSP函数，需在配置波特率前开启USART3时钟。 */
+  __HAL_RCC_USART3_CLK_ENABLE();
+  __HAL_RCC_USART3_FORCE_RESET();
+  __HAL_RCC_USART3_RELEASE_RESET();
   clean_link.Instance = USART3;
   clean_link.Init.BaudRate = CLEAN_LINK_BAUD;
   clean_link.Init.WordLength = UART_WORDLENGTH_8B;
@@ -612,6 +614,10 @@ static void MX_QSPI_Init(void)
   */
 static void MX_SPI1_Init(void)
 {
+  /* Clean未使用Cube生成的SPI MSP函数，必须自行开启外设时钟。 */
+  __HAL_RCC_SPI1_CLK_ENABLE();
+  __HAL_RCC_SPI1_FORCE_RESET();
+  __HAL_RCC_SPI1_RELEASE_RESET();
   clean_spi.Instance = SPI1;
   clean_spi.Init.Mode = SPI_MODE_MASTER;
   clean_spi.Init.Direction = SPI_DIRECTION_2LINES_TXONLY;
@@ -685,13 +691,13 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(CLEAN_QSPI_CLK_PORT, &GPIO_InitStruct);
   GPIO_InitStruct.Pin = CLEAN_QSPI_IO0_PIN|CLEAN_QSPI_IO1_PIN|CLEAN_QSPI_IO2_PIN;
   HAL_GPIO_Init(CLEAN_QSPI_IO_PORT, &GPIO_InitStruct);
+  GPIO_InitStruct.Pin = CLEAN_QSPI_IO3_PIN;
+  HAL_GPIO_Init(CLEAN_QSPI_IO3_PORT, &GPIO_InitStruct);
 
-  /* NCS与IO3使用AF10，与IO0..2的AF9不同。 */
+  /* 只有PB6片选使用AF10；PE2数据脚使用AF9。 */
   GPIO_InitStruct.Alternate = GPIO_AF10_QUADSPI;
   GPIO_InitStruct.Pin = CLEAN_QSPI_NCS_PIN;
   HAL_GPIO_Init(CLEAN_QSPI_NCS_PORT, &GPIO_InitStruct);
-  GPIO_InitStruct.Pin = CLEAN_QSPI_IO3_PIN;
-  HAL_GPIO_Init(CLEAN_QSPI_IO3_PORT, &GPIO_InitStruct);
 
   /* USART3: PB10=TX, PB11=RX */
   GPIO_InitStruct.Pin = CLEAN_LINK_TX_PIN|CLEAN_LINK_RX_PIN;

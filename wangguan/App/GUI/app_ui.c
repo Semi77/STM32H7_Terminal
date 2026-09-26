@@ -56,12 +56,14 @@ void app_ui_update_light_status(uint32_t light_lux, bool tx_ok)
   * @param status_text 状态短标签；NULL表示尚无快照。
   * @param success_count 累计成功次数。
   * @param error_count 累计失败次数。
+  * @param tx_started 本次请求是否开始发送；tx_complete表示发送完成；rx_bytes为接收字节数。
   * @retval 无，必须从LVGL所在线程调用。
   */
 void app_ui_update_modbus_readout(const char *status_text,
-                                  uint32_t success_count, uint32_t error_count)
+                                  uint32_t success_count, uint32_t error_count,
+                                  bool tx_started, bool tx_complete, uint16_t rx_bytes)
 {
-    char text[32];
+    char text[48];
 
     if(status_text == NULL)
     {
@@ -70,8 +72,10 @@ void app_ui_update_modbus_readout(const char *status_text,
         return;
     }
     /* 同时给出状态和成功/失败计数，便于区分"没接通"与"偶发校验错"。 */
-    lv_snprintf(text, sizeof(text), "RS485 %s %lu/%lu", status_text,
-                (unsigned long)success_count, (unsigned long)error_count);
+    lv_snprintf(text, sizeof(text), "RS485 %s %lu/%lu T%u C%u R%u", status_text,
+                (unsigned long)success_count, (unsigned long)error_count,
+                tx_started ? 1U : 0U, tx_complete ? 1U : 0U,
+                (unsigned int)rx_bytes);
     lv_label_set_text(s_ui.modbus_value, text);
     lv_obj_set_style_text_color(s_ui.modbus_value,
                                 strcmp(status_text, "OK") == 0
@@ -254,12 +258,6 @@ void app_ui_create(void)
     lv_obj_set_style_text_color(status, lv_color_hex(0xFF7A59), 0);
     s_ui.network_value = status;
 
-    /* RS485采集状态放在footer左侧第三行，避开联网图标与CPU标签。 */
-    s_ui.modbus_value = lv_label_create(footer);
-    lv_label_set_text(s_ui.modbus_value, "RS485 --");
-    lv_obj_align(s_ui.modbus_value, LV_ALIGN_TOP_LEFT, 0, 14);
-    lv_obj_set_style_text_color(s_ui.modbus_value, lv_color_hex(0x8FA4C7), 0);
-
     cards = lv_obj_create(screen);
     lv_obj_set_size(cards, 304, 86);
     lv_obj_align(cards, LV_ALIGN_TOP_MID, 0, 42);
@@ -281,6 +279,12 @@ void app_ui_create(void)
     lv_obj_set_style_border_color(footer, lv_color_hex(0x263755), 0);
     lv_obj_set_style_bg_color(footer, lv_color_hex(0x111C30), 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* 在底部面板创建后放置RS485状态，避免使用未初始化的父对象。 */
+    s_ui.modbus_value = lv_label_create(footer);
+    lv_label_set_text(s_ui.modbus_value, "RS485 --");
+    lv_obj_align(s_ui.modbus_value, LV_ALIGN_TOP_LEFT, 0, 18);
+    lv_obj_set_style_text_color(s_ui.modbus_value, lv_color_hex(0x8FA4C7), 0);
 
     footer_title = lv_label_create(footer);
     lv_label_set_text(footer_title, "SYSTEM STATUS");

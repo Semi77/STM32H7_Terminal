@@ -125,6 +125,9 @@ int main(void)
     prepare(1, 250, 500);
     assert(ModbusSensor_Read(1, &temperature, &humidity) == MODBUS_OK);
     assert(temperature == 250 && humidity == 500);
+    ModbusDiagnostics diagnostics;
+    assert(Modbus_GetDiagnostics(1, &diagnostics));
+    assert(diagnostics.tx_started && diagnostics.tx_complete && diagnostics.rx_bytes == 9U);
     prepare(2, 10250, 0);
     assert(ModbusSensor_Read(2, &temperature, &humidity) == MODBUS_OK);
     assert(temperature == -250 && humidity == 0);
@@ -141,6 +144,8 @@ int main(void)
     prepare(1, 250, 500); response[1] = 0x84; response[2] = 2; finish_response(3); expect_error(MODBUS_EXCEPTION);
     prepare(1, 250, 500); response_length = 4; expect_error(MODBUS_FRAME_ERROR);
     prepare(1, 250, 500); response_length = 0; expect_error(MODBUS_TIMEOUT);
+    assert(Modbus_GetDiagnostics(1, &diagnostics));
+    assert(diagnostics.tx_started && diagnostics.tx_complete && diagnostics.rx_bytes == 0U);
     prepare(1, 250, 500); response_length = sizeof(response); expect_error(MODBUS_FRAME_ERROR);
     prepare(1, 250, 500); gap = true; expect_error(MODBUS_FRAME_ERROR);
     prepare(1, 1251, 500); expect_error(MODBUS_FRAME_ERROR);
@@ -150,6 +155,8 @@ int main(void)
     prepare(1, 250, 500); fail_rx = true; expect_error(MODBUS_UART_ERROR);
     prepare(1, 250, 500); error_irq = true; expect_error(MODBUS_UART_ERROR);
     prepare(1, 250, 500); omit_tc = true; expect_error(MODBUS_TIMEOUT);
+    assert(Modbus_GetDiagnostics(1, &diagnostics));
+    assert(diagnostics.tx_started && !diagnostics.tx_complete && diagnostics.rx_bytes == 0U);
     prepare(1, 250, 500); noise = true;
     unsigned previous_transmits = transmit_count;
     expect_error(MODBUS_TIMEOUT);

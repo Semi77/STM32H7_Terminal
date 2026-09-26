@@ -33,6 +33,7 @@
 #include "boot_selftest.h"
 #include "modbus_sensor.h"
 #include "boot_trial.h"
+#include "offline_cache.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -91,6 +92,8 @@ const osThreadAttr_t FeedWDG_attributes = {
   .priority = (osPriority_t) osPriorityHigh,
 };
 #define STARTUP_GRACE_MS 3000U
+#define CACHE_SCAN_LIMIT_MS 30000U
+#define CACHE_SCAN_STALL_MS 2000U
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -800,7 +803,7 @@ void StartDefaultTask(void *argument)
 
 /* USER CODE BEGIN Header_StartTask02 */
 /**
-  * @brief 仅在所有关键任务心跳正常时刷新独立看门狗。
+  * @brief 启动、缓存扫描及关键任务健康期间刷新独立看门狗。
   * @param argument 未使用的任务参数。
   * @retval 无，任务持续运行。
   */
@@ -810,9 +813,19 @@ void StartTask02(void *argument)
   /* USER CODE BEGIN StartTask02 */
 	// 获取开始时间
   uint32_t start_tick = HAL_GetTick();
+  uint32_t last_scan_sectors = 0U;
+  uint32_t last_scan_tick = start_tick;
   for (;;)
   {
     uint32_t now = HAL_GetTick();
+
+    uint32_t scan_sectors = g_offline_cache_scan_sectors;
+    if (scan_sectors != 0U && scan_sectors != UINT32_MAX &&
+        scan_sectors != last_scan_sectors)
+    {
+      last_scan_sectors = scan_sectors;
+      last_scan_tick = now;
+    }
 		
 		// 判断启动条件：三个任务启动 且三个任务刷新心跳的间隔小于1.5s
 		// 认定为任务正常运行喂狗
@@ -824,8 +837,14 @@ void StartTask02(void *argument)
 
     BootTrial_Poll(healthy);
 
-    /* 启动宽限期内允许任务完成初始化，避免误触发复位。 */
-    if (((now - start_tick) < STARTUP_GRACE_MS) || healthy)
+    /* 缓存扫描持续推进且其他任务正常时，限时喂狗但不确认试运行固件。 */
+    bool scanning = scan_sectors != 0U && scan_sectors != UINT32_MAX &&
+                    (now - start_tick) < CACHE_SCAN_LIMIT_MS &&
+                    (now - last_scan_tick) < CACHE_SCAN_STALL_MS &&
+                    g_lvgl_started && g_usart1_started &&
+                    (now - g_lvgl_heartbeat) < 1500U &&
+                    (now - g_usart1_heartbeat) < 1500U;
+    if (((now - start_tick) < STARTUP_GRACE_MS) || healthy || scanning)
     {
       (void)HAL_IWDG_Refresh(&hiwdg1);
     }

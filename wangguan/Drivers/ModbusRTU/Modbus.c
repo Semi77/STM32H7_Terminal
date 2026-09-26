@@ -11,10 +11,28 @@ static UART_HandleTypeDef *bus_uart;
 static osSemaphoreId_t bus_event;
 static volatile bool bus_busy, tx_complete, uart_failed, frame_failed;
 static volatile uint16_t rx_length;
+static volatile uint16_t rx_seen;
 static volatile uint32_t last_rx_ms, last_rx_cycles;
 static uint32_t max_byte_gap_cycles;
 static uint8_t rx_byte;
 static uint8_t rx_frame[5U + 2U * MODBUS_MAX_REGISTERS];
+static ModbusDiagnostics last_diagnostics[2];
+static bool diagnostics_ready[2];
+
+/**
+  * @brief 复制站号1或2最近一次事务的发送与接收状态。
+  * @param address 站号；diagnostics为非空输出地址。
+  * @retval true表示存在记录。
+  */
+bool Modbus_GetDiagnostics(uint8_t address, ModbusDiagnostics *diagnostics)
+{
+    if (address < 1U || address > 2U || !diagnostics) return false;
+    taskENTER_CRITICAL();
+    bool ready = diagnostics_ready[address - 1U];
+    if (ready) *diagnostics = last_diagnostics[address - 1U];
+    taskEXIT_CRITICAL();
+    return ready;
+}
 
 /**
   * @brief 计算Modbus CRC16，返回值发送时先低字节后高字节。
@@ -91,6 +109,7 @@ void Modbus_RxComplete(UART_HandleTypeDef *uart)
     if (!bus_uart || uart != bus_uart || !bus_busy) return;
     uint32_t cycles = DWT->CYCCNT;
     last_rx_ms = HAL_GetTick();
+    ++rx_seen;
     if (tx_complete) {
         if (rx_length && (uint32_t)(cycles - last_rx_cycles) > max_byte_gap_cycles)
             frame_failed = true;
@@ -158,6 +177,7 @@ ModbusStatus Modbus_ReadInputRegisters(uint8_t address, uint16_t start,
     uint32_t begin = HAL_GetTick();
     tx_complete = uart_failed = frame_failed = false;
     rx_length = 0U;
+    rx_seen = 0U;
     last_rx_ms = begin;
     while (osSemaphoreAcquire(bus_event, 0U) == osOK) {}
     (void)HAL_UART_Abort(bus_uart);
@@ -197,6 +217,12 @@ ModbusStatus Modbus_ReadInputRegisters(uint8_t address, uint16_t start,
     (void)HAL_UART_Abort(bus_uart);
     HAL_GPIO_WritePin(Modbus_Enable_GPIO_Port, Modbus_Enable_Pin, GPIO_PIN_RESET);
     taskENTER_CRITICAL();
+    if (address <= 2U) {
+        last_diagnostics[address - 1U].tx_started = sent;
+        last_diagnostics[address - 1U].tx_complete = tx_complete;
+        last_diagnostics[address - 1U].rx_bytes = rx_seen;
+        diagnostics_ready[address - 1U] = true;
+    }
     bus_busy = false;
     taskEXIT_CRITICAL();
     return result;

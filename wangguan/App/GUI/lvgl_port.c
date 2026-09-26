@@ -130,10 +130,14 @@ static void LVGL_UpdateSensorCards(void)
       modbus.success_count != last_success_count ||
       modbus.error_count != last_error_count) {
     if (has_snapshot) {
+      ModbusDiagnostics diagnostics = {0};
+      (void)Modbus_GetDiagnostics(1U, &diagnostics);
       app_ui_update_modbus_readout(LVGL_ModbusStatusText(modbus.status),
-                                   modbus.success_count, modbus.error_count);
+                                   modbus.success_count, modbus.error_count,
+                                   diagnostics.tx_started, diagnostics.tx_complete,
+                                   diagnostics.rx_bytes);
     } else {
-      app_ui_update_modbus_readout(NULL, 0U, 0U);
+      app_ui_update_modbus_readout(NULL, 0U, 0U, false, false, 0U);
     }
     last_has_snapshot = has_snapshot;
     last_success_count = modbus.success_count;

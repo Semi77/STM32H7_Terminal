@@ -32,6 +32,7 @@ static uint16_t sector_pending[SECTOR_COUNT];
 static uint32_t head, tail, pending, overwritten, next_id, id_limit, journal_addr;
 static bool ready;
 static uint8_t scan_buffer[SECTOR_SIZE];
+volatile uint32_t g_offline_cache_scan_sectors = UINT32_MAX;
 
 /**
   * @brief 计算data前length字节的CRC32，检查掉电半写和数据损坏。
@@ -126,6 +127,7 @@ static bool reserve_ids(void)
 
 bool OfflineCache_Init(void)
 {
+  g_offline_cache_scan_sectors = 0U;
   ready = false;
   pending = overwritten = id_limit = 0;
   head = tail = DATA_BASE;
@@ -133,7 +135,10 @@ bool OfflineCache_Init(void)
   memset(sector_pending, 0, sizeof(sector_pending));
   /* 扫描序号日志；记录之后的半写槽位也必须跳过，不能直接覆盖编程。 */
   for (uint32_t sector = CACHE_BASE; sector < DATA_BASE; sector += SECTOR_SIZE) {
-    if (W25Q64_ReadData(sector, scan_buffer, sizeof(scan_buffer)) != HAL_OK) return false;
+    if (W25Q64_ReadData(sector, scan_buffer, sizeof(scan_buffer)) != HAL_OK) {
+      g_offline_cache_scan_sectors = UINT32_MAX;
+      return false;
+    }
     for (uint32_t offset = 0; offset < SECTOR_SIZE; offset += RECORD_SIZE) {
       Journal entry;
       memcpy(&entry, scan_buffer+offset, sizeof(entry));
@@ -148,7 +153,10 @@ bool OfflineCache_Init(void)
     uint32_t address = journal_addr+RECORD_SIZE;
     while (address % SECTOR_SIZE != 0) {
       Journal entry;
-      if (W25Q64_ReadData(address, (uint8_t *)&entry, sizeof(entry)) != HAL_OK) return false;
+      if (W25Q64_ReadData(address, (uint8_t *)&entry, sizeof(entry)) != HAL_OK) {
+        g_offline_cache_scan_sectors = UINT32_MAX;
+        return false;
+      }
       bool erased = true;
       for (uint32_t i=0; i<sizeof(entry); ++i) if (((uint8_t *)&entry)[i] != 0xFF) erased=false;
       if (erased) break;
@@ -159,7 +167,10 @@ bool OfflineCache_Init(void)
   uint32_t newest = 0, oldest = UINT32_MAX;
   for (uint32_t sector = 0; sector < SECTOR_COUNT; ++sector) {
     uint32_t base = DATA_BASE+sector*SECTOR_SIZE;
-    if (W25Q64_ReadData(base, scan_buffer, sizeof(scan_buffer)) != HAL_OK) return false;
+    if (W25Q64_ReadData(base, scan_buffer, sizeof(scan_buffer)) != HAL_OK) {
+      g_offline_cache_scan_sectors = UINT32_MAX;
+      return false;
+    }
     for (uint32_t offset = 0; offset < SECTOR_SIZE; offset += RECORD_SIZE) {
       Record record;
       memcpy(&record, scan_buffer+offset, sizeof(record));
@@ -173,11 +184,16 @@ bool OfflineCache_Init(void)
         if (record.sample.sequence < oldest) { oldest=record.sample.sequence; head=base+offset; }
       }
     }
+    /* 每完成一个扇区就发布进度，供看门狗任务判断扫描是否仍在推进。 */
+    g_offline_cache_scan_sectors = sector + 1U;
   }
   /* 序号日志损坏时不冒险复用已有记录的序号。 */
-  if (newest > id_limit) return false;
-  if (!reserve_ids()) return false;
+  if (newest > id_limit || !reserve_ids()) {
+    g_offline_cache_scan_sectors = UINT32_MAX;
+    return false;
+  }
   ready = true;
+  g_offline_cache_scan_sectors = UINT32_MAX;
   return true;
 }
 

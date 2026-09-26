@@ -233,7 +233,7 @@ class GatewayWindow:
         self.last_selftest = None
         self.cancel_upload = threading.Event()
         self.filename = tk.StringVar()
-        self.upload_state = tk.StringVar(value="选择编译生成的 .ota.bin 升级文件，应用最大512 KiB")
+        self.upload_state = tk.StringVar(value="选择编译生成的 .ota.bin 升级文件，应用最大384 KiB")
         self.auto = tk.BooleanVar(value=False)
         self.address = tk.StringVar()
         self.message = tk.StringVar(value="你好，ESP32-C3")

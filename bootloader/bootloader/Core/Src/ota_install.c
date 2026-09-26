@@ -130,13 +130,30 @@ uint32_t OtaInstall_Recover(void)
         }
     }
     OtaBoot_ClearTrial();
+    if (state.phase==AB_STABLE && !state.good_size && current==state.good_bank) {
+        /* 分次烧录时先运行Boot会记录空应用；随后经SWD写入完整应用即可补登记。 */
+        uint32_t crc;
+        status=checksum(current,APP_FLASH_SIZE,&crc);
+        if (status==OTA_OK) {
+            AbState next=state; next.good_size=APP_FLASH_SIZE; next.good_crc=crc;
+            if (!commit(next)) return OTA_FLASH_ERROR;
+        } else if (status!=OTA_BAD_IMAGE) return status;
+    }
     uint32_t desired=state.phase==AB_TRIAL?state.target_bank:state.good_bank;
     if (state.phase==AB_STABLE) {
         status=verify(desired,state.good_size,state.good_crc);
         if (status!=OTA_OK) return status;
     }
     if (desired!=current) {
-        if (!OtaApp_BootCopyValid() || !OtaApp_SelectBank(desired)) return OTA_FLASH_ERROR;
+        if (!OtaApp_BootCopyValid() || !OtaApp_SelectBank(desired)) {
+            /* 首次激活失败时仍在已确认Bank，撤销候选并继续运行旧版本。 */
+            if (state.phase==AB_TRIAL && current==state.good_bank) {
+                if (reject()!=OTA_OK) return OTA_FLASH_ERROR;
+                blocked=false;
+                return OTA_OK;
+            }
+            return OTA_FLASH_ERROR;
+        }
         return OTA_RECOVERY_REQUIRED; /* 硬件成功时已复位，模拟器可返回。 */
     }
     blocked=false;
