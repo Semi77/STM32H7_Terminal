@@ -39,3 +39,21 @@ menu "Example Configuration"
         default y if EXAMPLE_BROKER_CERTIFICATE_OVERRIDE != ""
 
 endmenu
+
+menu "OneNET Configuration"
+
+    config ONENET_PRODUCT_ID
+        string "Product ID"
+        default "Ul3dl7fk82"
+
+    config ONENET_DEVICE_NAME
+        string "Device name"
+        default "ESP32C3"
+
+    config ONENET_TOKEN
+        string "Device access token"
+        default ""
+        help
+            Set the token locally with idf.py menuconfig. Do not commit sdkconfig.
+
+endmenu

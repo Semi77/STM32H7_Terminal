@@ -143,6 +143,10 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base, int32_t event_i
   */
 void onenet_test_start(void)
 {
+    if (ONENET_TOKEN[0] == '\0') {
+        ESP_LOGW(TAG, "OneNET token is empty; configure it with idf.py menuconfig");
+        return;
+    }
     const esp_mqtt_client_config_t config={
         .broker.address.uri=CONFIG_EXAMPLE_MQTT_BROKER_URI,
         .credentials.client_id=ONENET_DEVICE_NAME,

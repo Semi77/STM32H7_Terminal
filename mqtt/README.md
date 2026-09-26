@@ -1,75 +1,28 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-P4 | ESP32-S2 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | -------- | -------- | -------- |
+# ESP32-C3 网关桥接固件
 
-# ESP-MQTT SSL Sample application
+本工程基于 ESP-IDF，负责通过 USART3 与 STM32H743 通信，向局域网提供 HTTP 接口，并将 STM32 的采样记录转发到 OneNET MQTT。OTA 固件由电脑经 HTTP 发送给 ESP32-C3，再转发给 STM32 Bootloader；ESP32-C3 不负责安装 STM32 固件。
 
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
+## 配置与构建
 
-This example shows how to use the external ESP-MQTT client (managed component `espressif/mqtt`) from an ESP-IDF project. It connects to an MQTT broker over TLS and demonstrates basic operations: connect, subscribe, publish, receive data, and unsubscribe. You can switch between MQTT 3.1.1 and MQTT 5.0 via menuconfig.
+使用 ESP-IDF 环境，在本目录运行：
 
-This example connects to the broker test.mosquitto.org (Please note that the public broker is maintained by the community so may not be always available)
-
-Two TLS validation configurations are available:
-- Certificate bundle (default): Uses ESP‑IDF's certificate bundle and targets `test.mosquitto.org:8886` (Let's Encrypt chain).
-- Embedded Mosquitto CA: Pins `mosquitto.org.crt` to validate `test.mosquitto.org:8883` (mirrors the legacy SSL example).
-
-## Features
-
-- Uses the managed component `espressif/mqtt` (fetched via IDF Component Manager)
-- TLS connection with server verification using the certificate bundle
-- Basic operations: subscribe, publish (QoS0, QoS1), receive data, unsubscribe
-
-- Important: Changing the certificate validation method does not automatically update the Broker URI in menuconfig. Make sure the port matches your selection:
-  - Bundle: use `mqtts://test.mosquitto.org:8886`
-  - Mosquitto CA: use `mqtts://test.mosquitto.org:8883`
-- Certificate bundle mode uses `esp_crt_bundle_attach` and targets port `8886`.
-- Mosquitto CA mode embeds and pins `mosquitto.org.crt` and targets port `8883`.
-- The managed component dependency is declared in `main/idf_component.yml` and will be downloaded automatically.
-
-### Hardware Required
-
-This example can be executed on any ESP32 board, the only required interface is WiFi and connection to internet.
-
-### Configure the project
-
-* Open the project configuration menu (`idf.py menuconfig`)
-* Configure Wi-Fi or Ethernet under "Example Connection Configuration" menu. See "Establishing Wi-Fi or Ethernet Connection" section in [examples/protocols/README.md](../../README.md) for more details.
-
-### Build and Flash
-
-Build the project and flash it to the board, then run monitor tool to view serial output:
-
-```
-idf.py -p PORT flash monitor
+```bash
+idf.py set-target esp32c3
+idf.py menuconfig
+idf.py build flash monitor
 ```
 
-(To exit the serial monitor, type ``Ctrl-]``.)
+在 `Example Connection Configuration` 中设置 Wi-Fi，在 `OneNET Configuration` 中设置产品 ID、设备名和访问令牌。OneNET 令牌为空时仅跳过 MQTT 启动，局域网 HTTP 服务仍会运行。`sdkconfig` 只保存在本机，不纳入 Git；`sdkconfig.defaults` 提供不含密码的公共默认值。令牌不要写入源码或提交到仓库。
 
-See the Getting Started Guide for full steps to configure and use ESP-IDF to build projects.
+联网后串口会打印 `local_http: PC URL: http://<设备IP>`。电脑与 ESP32-C3 需要在互通的局域网中。HTTP 状态、PING/ECHO 和 STM32 OTA 操作由根目录的 [上位机](../pc_gateway/README.md)使用；首次烧录 STM32 和 A/B 分区说明见 [A/B OTA 文档](../docs/ota_ab.md)。
 
-## Example Output
+## 主要源码
 
-```
-I (3714) event: sta ip: 192.168.0.139, mask: 255.255.255.0, gw: 192.168.0.2
-I (3714) system_api: Base MAC address is not set, read default base MAC address from BLK0 of EFUSE
-I (3964) MQTT_CLIENT: Sending MQTT CONNECT message, type: 1, id: 0000
-I (4164) MQTTS_EXAMPLE: MQTT_EVENT_CONNECTED
-I (4174) MQTTS_EXAMPLE: sent publish successful, msg_id=41464
-I (4174) MQTTS_EXAMPLE: sent subscribe successful, msg_id=17886
-I (4174) MQTTS_EXAMPLE: sent subscribe successful, msg_id=42970
-I (4184) MQTTS_EXAMPLE: sent unsubscribe successful, msg_id=50241
-I (4314) MQTTS_EXAMPLE: MQTT_EVENT_PUBLISHED, msg_id=41464
-I (4484) MQTTS_EXAMPLE: MQTT_EVENT_SUBSCRIBED, msg_id=17886
-I (4484) MQTTS_EXAMPLE: sent publish successful, msg_id=0
-I (4684) MQTTS_EXAMPLE: MQTT_EVENT_SUBSCRIBED, msg_id=42970
-I (4684) MQTTS_EXAMPLE: sent publish successful, msg_id=0
-I (4884) MQTT_CLIENT: deliver_publish, message_length_read=19, message_length=19
-I (4884) MQTTS_EXAMPLE: MQTT_EVENT_DATA
-TOPIC=/topic/qos0
-DATA=data
-I (5194) MQTT_CLIENT: deliver_publish, message_length_read=19, message_length=19
-I (5194) MQTTS_EXAMPLE: MQTT_EVENT_DATA
-TOPIC=/topic/qos0
-DATA=data
-```
+| 文件 | 作用 |
+| --- | --- |
+| `main/h7_uart.c` | STM32 串口收发、心跳和 OTA 帧转发 |
+| `main/local_http.c` | 局域网 HTTP 接口 |
+| `main/onenet_test.c` | OneNET MQTT 上报和平台回复确认 |
+| `main/selftest_report.c` | 接收并缓存 STM32 自检报告 |
 
+仓库只保存源码和构建配置；ESP-IDF 生成的 `build/`、Bootloader 二进制及本机配置需在本地生成。

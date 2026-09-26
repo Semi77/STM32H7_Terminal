@@ -24,6 +24,8 @@ wangguan/MDK-ARM/wangguan/
 *.sct.Bak
 *_sct.Bak
 *.uvguix.*
+*.uvoptx
+**/DebugConfig/
 *.bak
 *.tmp
 
@@ -65,5 +67,8 @@ Desktop.ini
 .vscode/ipch/
 .idea/workspace.xml
 .idea/shelf/
+.idea/
+pc_gateway/.test_temp/
+pc_gateway/.test_tmp/
 *.suo
 *.user
