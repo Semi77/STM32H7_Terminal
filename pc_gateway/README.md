@@ -2,11 +2,11 @@
 
 实现电脑与 ESP32-C3 的局域网 HTTP 通信：状态查询、2秒自动刷新、PING/PONG、UTF-8 ECHO、进入STM32 Bootloader、上传固件到W25Q64及点击“安装固件”写入非活动Bank。保留现有OneNET MQTT转发。安装后完整读回校验，试启动成功后确认；失败时切回旧版，详见 [A/B升级与首次烧录](../docs/ota_ab.md)。
 
-请选择Keil构建生成的 `wangguan.ota.bin`，上位机校验构建期长度和CRC后才开始上传；原始 `.bin` 仅供工厂烧录。入口为 `h7_wifi_tool.py`，无需第三方Python库。
+请选择 Keil 构建生成的 `wangguan.ota.bin`，上位机校验构建期长度和 CRC 后才开始上传；原始 `.bin` 仅供工厂烧录。运行入口为 `main.py`（启动 `h7_wifi_tool.py` 中的窗口），无需第三方 Python 库。
 
 ## 使用
 
-1. 编译并烧录 `project/mqtt` 的 ESP32 固件，并通过调试器更新STM32 Bootloader。Wi-Fi 使用该工程原有配置；需要修改时在 ESP-IDF menuconfig 的 Example Connection Configuration 中设置。电脑与 ESP32 接入可互通的同一路由器网络，访客网络或客户端隔离可能阻止访问。
+1. 编译并烧录仓库中 `mqtt/` 的 ESP32 固件，并按 [首次烧录步骤](../docs/ota_ab.md)准备 STM32 两个 Bank 的 Bootloader。Wi-Fi 使用该工程原有配置；需要修改时在 ESP-IDF menuconfig 的 Example Connection Configuration 中设置。电脑与 ESP32 接入可互通的同一路由器网络，访客网络或客户端隔离可能阻止访问。
 2. ESP32 获得 IP 后，串口日志会打印 `local_http: PC URL: http://设备IP`。重新联网地址可能变化。
 3. 在本目录运行 `powershell -ExecutionPolicy Bypass -File .\start.ps1`，或使用带 Tk 的 Python 运行 `python main.py`。启动脚本优先使用本机现有 ESP-IDF Python，不需要 pip 安装库。
 4. 在窗口输入日志中的地址，点击“连接 / 刷新”，然后测试 PING 和中文回显。也可用浏览器访问 `http://设备IP/api/status`。

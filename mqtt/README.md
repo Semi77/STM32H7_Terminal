@@ -1,6 +1,6 @@
 # ESP32-C3 网关桥接固件
 
-本工程基于 ESP-IDF，负责通过 USART3 与 STM32H743 通信，向局域网提供 HTTP 接口，并将 STM32 的采样记录转发到 OneNET MQTT。OTA 固件由电脑经 HTTP 发送给 ESP32-C3，再转发给 STM32 Bootloader；ESP32-C3 不负责安装 STM32 固件。
+本工程基于 ESP-IDF，负责通过 USART3 与 STM32H743 通信，向局域网提供 HTTP 接口，并将 STM32 的上传记录转发到 OneNET MQTT。当前上传记录中的温湿度由 STM32 模拟生成，光照取 BH1750 最近一次有效读数；STM32 屏幕显示的 RS485 温湿度尚未进入 MQTT 上传链路。OTA 固件由电脑经 HTTP 发送给 ESP32-C3，再转发给 STM32 Bootloader；ESP32-C3 不负责安装 STM32 固件。
 
 ## 配置与构建
 
