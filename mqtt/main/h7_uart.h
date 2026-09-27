@@ -52,6 +52,12 @@ void h7_uart_set_mqtt_connected(bool connected);
   */
 esp_err_t h7_uart_start_heartbeat(void);
 
+/**
+  * @brief 启动网络校时，并定期将UTC秒数发送给STM32。
+  * @retval ESP_OK表示任务已启动，其他值表示初始化失败。
+  */
+esp_err_t h7_uart_start_time_sync(void);
+
 typedef struct {
     bool has_sample;
     bool mqtt_ready;

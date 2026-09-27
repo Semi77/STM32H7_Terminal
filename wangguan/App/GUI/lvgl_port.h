@@ -4,7 +4,7 @@
 #include "main.h"
 
 /**
-  * @brief 初始化LVGL与ILI9341并持续运行图形任务。
+  * @brief 初始化LVGL与ST7735S并持续运行图形任务。
   * @param hspi 屏幕使用的SPI句柄。
   * @retval 无。
   */

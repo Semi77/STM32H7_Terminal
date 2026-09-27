@@ -1,11 +1,11 @@
 #include "lvgl_port.h"
 
 #include "app_ui.h"
-#include "cmsis_os2.h"
 #include "modbus_sensor.h"
 #include "usart3_test.h"
-#include "ili9341.h"
+#include "st7735s.h"
 #include "cpu_stats.h"
+#include "bh1750.h"
 #include "lvgl.h"
 #include "FreeRTOS.h"
 #include "task.h"
@@ -17,7 +17,7 @@
 #define LVGL_RESOURCE_INTERVAL_MS 1000U
 #define LVGL_RESOURCE_MAX_TASKS 16U
 
-static uint8_t s_lvgl_draw_buffer[ILI9341_WIDTH * LVGL_DRAW_BUFFER_LINES * 2U]
+static uint8_t s_lvgl_draw_buffer[ST7735S_WIDTH * LVGL_DRAW_BUFFER_LINES * 2U]
     __attribute__((aligned(32)));
 
 /**
@@ -87,7 +87,7 @@ static const char *LVGL_ModbusStatusText(ModbusStatus status)
 }
 
 /**
-  * @brief 温湿度取RS485真实采样，光照与上传状态仍取网关模拟快照。
+  * @brief 温湿度取RS485采样、光照取GY-302采样，上传状态取网关快照。
   * @retval 无，所有LVGL操作保持在图形任务。
   */
 static void LVGL_UpdateSensorCards(void)
@@ -103,6 +103,7 @@ static void LVGL_UpdateSensorCards(void)
   static bool last_has_snapshot;
   static uint32_t last_success_count;
   static uint32_t last_error_count;
+  static uint32_t last_light_sequence;
 
   bool online = Usart3Test_IsOnline();
   if (online != last_online) {
@@ -148,12 +149,20 @@ static void LVGL_UpdateSensorCards(void)
   last_valid = modbus.valid;
   last_has_data = has_data;
 
-  /* 光照没有RS485来源，继续使用网关任务的模拟采样。 */
+  /* 光照卡片只显示I2C传感器结果，避免被网关模拟数值覆盖。 */
+  BH1750_Sample light;
+  if (BH1750_GetSample(&light) && light.sequence != last_light_sequence)
+  {
+    app_ui_update_light_reading(light.lux, light.has_data, light.read_ok);
+    last_light_sequence = light.sequence;
+  }
+
+  /* 模拟网关快照只更新串口发送状态和序号。 */
   Usart3TestSnapshot_t sample;
   if (Usart3Test_GetSnapshot(&sample) &&
       (!displayed || sample.sequence != last_sequence))
   {
-    app_ui_update_light_status(sample.light_lux, sample.tx_status == HAL_OK);
+    app_ui_update_upload_status(sample.tx_status == HAL_OK);
     app_ui_update_upload_sequence(sample.sequence);
     last_sequence = sample.sequence;
     displayed = true;
@@ -161,7 +170,7 @@ static void LVGL_UpdateSensorCards(void)
 }
 
 /**
-  * @brief 将LVGL生成的RGB565区域同步发送到ILI9341。
+  * @brief 将LVGL生成的RGB565区域同步发送到ST7735S。
   * @param display 当前执行刷新的LVGL显示对象。
   * @param area 待刷新的屏幕坐标区域。
   * @param pixel_map 待发送的RGB565像素缓冲区。
@@ -180,7 +189,7 @@ static void LVGL_DisplayFlush(lv_display_t *display,
   pixel_count = (uint32_t)width * height;
 
   lv_draw_sw_rgb565_swap(pixel_map, pixel_count);
-  if (ILI9341_WriteRGB565((uint16_t)area->x1,
+  if (ST7735S_WriteRGB565((uint16_t)area->x1,
                           (uint16_t)area->y1,
                           width,
                           height,
@@ -192,7 +201,7 @@ static void LVGL_DisplayFlush(lv_display_t *display,
 }
 
 /**
-  * @brief 初始化LVGL与ILI9341并持续运行图形任务。
+  * @brief 初始化LVGL与ST7735S并持续运行图形任务。
   * @param hspi 屏幕使用的SPI句柄。
   * @retval 无。
   */
@@ -200,8 +209,10 @@ void LVGL_Port_Task(SPI_HandleTypeDef *hspi)
 {
   lv_display_t *display;
   uint32_t delay_ms;
+  uint32_t last_command_tick = 0U;
+  bool command_seen = false;
 
-  if (ILI9341_Init(hspi) != HAL_OK)
+  if (ST7735S_Init(hspi) != HAL_OK)
   {
     Error_Handler();
   }
@@ -209,7 +220,7 @@ void LVGL_Port_Task(SPI_HandleTypeDef *hspi)
   lv_init();
   lv_tick_set_cb(HAL_GetTick);
 
-  display = lv_display_create(ILI9341_WIDTH, ILI9341_HEIGHT);
+  display = lv_display_create(ST7735S_WIDTH, ST7735S_HEIGHT);
   if (display == NULL)
   {
     Error_Handler();
@@ -230,10 +241,24 @@ void LVGL_Port_Task(SPI_HandleTypeDef *hspi)
 
   for (;;)
   {
+    uint32_t command_tick;
+    if (Usart3Test_GetUserCommandTick(&command_tick) &&
+        (!command_seen || command_tick != last_command_tick))
+    {
+      ST7735S_BacklightActivity();
+      last_command_tick = command_tick;
+      command_seen = true;
+    }
+    ST7735S_BacklightPoll();
     LVGL_UpdateSensorCards();
     LVGL_UpdateResource();
     /* 复用TIM6维护的HAL毫秒时基更新运行时长，不在定时器中断中操作LVGL。 */
-    app_ui_update_uptime(HAL_GetTick());
+    uint32_t now_tick = HAL_GetTick();
+    uint32_t utc_seconds = 0U;
+    uint32_t received_tick = 0U;
+    bool has_time = Usart3Test_GetNetworkTime(&utc_seconds, &received_tick);
+    app_ui_update_uptime(now_tick);
+    app_ui_update_network_time(utc_seconds, received_tick, has_time, now_tick);
     delay_ms = lv_timer_handler();
     if ((delay_ms == LV_NO_TIMER_READY) ||
         (delay_ms > LVGL_TASK_MAX_DELAY_MS))
@@ -245,6 +270,6 @@ void LVGL_Port_Task(SPI_HandleTypeDef *hspi)
       delay_ms = 1U;
     }
     g_lvgl_heartbeat = HAL_GetTick();
-    osDelay(delay_ms);
+    vTaskDelay(pdMS_TO_TICKS(delay_ms));
   }
 }

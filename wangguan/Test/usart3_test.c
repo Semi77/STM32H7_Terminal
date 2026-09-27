@@ -1,5 +1,4 @@
 #include "usart3_test.h"
-#include "cmsis_os2.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include <string.h>
@@ -8,6 +7,7 @@
 #include "boot_selftest.h"
 #include "selftest_wire.h"
 #include "Modbus.h"
+#include "bh1750.h"
 
 static Usart3TestSnapshot_t latest_snapshot;
 static bool snapshot_ready;
@@ -20,11 +20,10 @@ static volatile bool status_valid, status_online;
 static volatile uint32_t status_tick, ack_sequence;
 static volatile bool boot_requested;
 static volatile uint32_t selftest_ack;
-static const osThreadAttr_t usart3_test_task_attributes = {
-  .name = "gatewayUpload",
-  .stack_size = 3072U,
-  .priority = (osPriority_t)osPriorityLow,
-};
+static volatile uint32_t user_command_tick;
+static volatile bool user_command_seen;
+static volatile uint32_t network_time_utc, network_time_tick;
+static volatile bool network_time_valid;
 
 /**
   * @brief 在短临界区复制最新模拟采样和上传统计到snapshot。
@@ -53,6 +52,38 @@ bool Usart3Test_IsOnline(void)
 }
 
 /**
+  * @brief 在短临界区读取最近一次ESP32网络校时快照。
+  * @param utc_seconds 输出UTC秒数。
+  * @param received_tick_ms 输出接收时的毫秒计数。
+  * @retval true表示已有有效时间，false表示尚未校时或参数无效。
+  */
+bool Usart3Test_GetNetworkTime(uint32_t *utc_seconds, uint32_t *received_tick_ms)
+{
+  if (utc_seconds == NULL || received_tick_ms == NULL) return false;
+  taskENTER_CRITICAL();
+  bool valid = network_time_valid;
+  *utc_seconds = network_time_utc;
+  *received_tick_ms = network_time_tick;
+  taskEXIT_CRITICAL();
+  return valid;
+}
+
+/**
+  * @brief 获取最近一次有效上位机页面指令的接收时刻。
+  * @param tick_ms 接收时刻的输出指针，单位毫秒。
+  * @retval true表示已收到页面指令，false表示尚未收到或参数无效。
+  */
+bool Usart3Test_GetUserCommandTick(uint32_t *tick_ms)
+{
+  if (tick_ms == NULL) return false;
+  taskENTER_CRITICAL();
+  bool seen = user_command_seen;
+  *tick_ms = user_command_tick;
+  taskEXIT_CRITICAL();
+  return seen;
+}
+
+/**
   * @brief 接收NET心跳或ACK序号，中断内只更新标志并重启接收。
   * @param huart 完成单字节接收的USART3句柄。
   * @retval 无。
@@ -68,8 +99,23 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         status_online = status_line[4] == '1';
         status_tick = HAL_GetTick();
         status_valid = true;
+      } else if (status_length == 16 && memcmp(status_line, "TIME:", 5) == 0) {
+        uint32_t seconds = 0U;
+        bool valid = true;
+        for (uint32_t i = 5U; i < 15U; ++i) {
+          uint32_t digit = (uint8_t)status_line[i] - (uint32_t)'0';
+          if (digit > 9U || seconds > (UINT32_MAX - digit) / 10U) { valid = false; break; }
+          seconds = seconds * 10U + digit;
+        }
+        if (valid && seconds >= 1704067200U) {
+          network_time_utc = seconds;
+          network_time_tick = HAL_GetTick();
+          network_time_valid = true;
+        }
       } else if (status_length == 11 && memcmp(status_line, "Bootloader\r", 11) == 0) {
         boot_requested = true;
+        user_command_tick = HAL_GetTick();
+        user_command_seen = true;
       } else if (status_length == 16 && memcmp(status_line, "ST_ACK:", 7) == 0) {
         uint32_t value=0;bool valid=true;
         for(unsigned i=7;i<15;++i) {
@@ -155,7 +201,11 @@ static void Usart3Test_Task(void *argument)
       if (OfflineCache_NextSequence(&sample.sequence)) {
         sample.temperature=25U+sample.sequence%5U;
         sample.humidity=55U+sample.sequence%10U;
-        sample.brightness=100U+sample.sequence%100U;
+        BH1750_Sample light={0};
+				// 调用亮度读取函数 将参数传入light这个结构体中
+        (void)BH1750_GetSample(&light);
+        /* 传感器暂时读失败时沿用最近一次有效照度，尚无数据时上传零。 */
+        sample.brightness=light.has_data?light.lux:0U;
         sample.tick_ms=now;
         GatewayUpload_Submit(&sample);
         snapshot.sequence=sample.sequence;
@@ -173,7 +223,7 @@ static void Usart3Test_Task(void *argument)
 		
 		 g_usart3_heartbeat = HAL_GetTick();
 		
-    (void)osDelay((osKernelGetTickFreq()+49U)/50U);	
+    vTaskDelay((configTICK_RATE_HZ + 49U) / 50U);
   }
 }
 
@@ -186,5 +236,6 @@ HAL_StatusTypeDef Usart3Test_Start(UART_HandleTypeDef *huart)
   if (!huart || huart->Instance != USART3) return HAL_ERROR;
   status_uart=huart;
   ensure_receive(huart);
-  return osThreadNew(Usart3Test_Task, huart, &usart3_test_task_attributes) ? HAL_OK : HAL_ERROR;
+  return xTaskCreate(Usart3Test_Task, "gatewayUpload", 3072U / sizeof(StackType_t),
+                     huart, 8U, NULL) == pdPASS ? HAL_OK : HAL_ERROR;
 }

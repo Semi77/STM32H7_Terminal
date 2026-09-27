@@ -2,7 +2,6 @@
 #include "selftest_wire.h"
 #include "fatfs.h"
 #include "diskio.h"
-#include "cmsis_os2.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include <ctype.h>
@@ -71,7 +70,7 @@ static void selftest_task(void *argument)
                 r->read+=got;
                 if(fr!=FR_OK || got<sizeof(buffer)) break;
                 /* 每块让出CPU，不阻塞GUI、上传及看门狗任务。 */
-                osDelay(1);
+                vTaskDelay(1U);
             }
             FRESULT close_result=f_close(&file);
             if(fr==FR_OK) fr=close_result;
@@ -88,13 +87,13 @@ unmount:
     (void)f_mount(NULL,SDPath,0);
 done:
     record(passed?10:11,FR_OK)->size=files;
-    publish();osThreadExit();
+    publish();vTaskDelete(NULL);
 }
 /** @brief 启动低优先级自检任务，任务栈容纳长文件名和分块读缓冲区。 @retval 无。 */
 void BootSelfTest_Start(void)
 {
-    const osThreadAttr_t attr={.name="sdSelfTest",.stack_size=12288U,.priority=osPriorityBelowNormal};
-    if(!osThreadNew(selftest_task,NULL,&attr)) {
+    if(xTaskCreate(selftest_task,"sdSelfTest",12288U/sizeof(StackType_t),
+                   NULL,16U,NULL)!=pdPASS) {
         started=HAL_GetTick();record(12,FR_NOT_ENOUGH_CORE);record(11,FR_NOT_ENOUGH_CORE);publish();
     }
 }

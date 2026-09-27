@@ -140,7 +140,7 @@
           <bUseTDR>1</bUseTDR>
           <Flash2>BIN\UL2V8M.DLL</Flash2>
           <Flash3>"" ()</Flash3>
-          <Flash4></Flash4>
+          <Flash4>bootloader_dual_bank.ini</Flash4>
           <pFcarmOut></pFcarmOut>
           <pFcarmGrp></pFcarmGrp>
           <pFcArmRoot></pFcArmRoot>
@@ -277,12 +277,12 @@
               </OCR_RVCT3>
               <OCR_RVCT4>
                 <Type>1</Type>
-                <StartAddress>0x8000000</StartAddress>
+                <StartAddress>0x8100000</StartAddress>
                 <Size>0x20000</Size>
               </OCR_RVCT4>
               <OCR_RVCT5>
                 <Type>1</Type>
-                <StartAddress>0x8100000</StartAddress>
+                <StartAddress>0x8200000</StartAddress>
                 <Size>0x80000</Size>
               </OCR_RVCT5>
               <OCR_RVCT6>
@@ -431,9 +431,9 @@
               <FilePath>../Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_spi.c</FilePath>
             </File>
             <File>
-              <FileName>ili9341.c</FileName>
+              <FileName>st7735s.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../../../wangguan/Drivers/Screen/ili9341.c</FilePath>
+              <FilePath>../../../wangguan/Drivers/Screen/st7735s.c</FilePath>
             </File>
             <File>
               <FileName>boot_page.c</FileName>

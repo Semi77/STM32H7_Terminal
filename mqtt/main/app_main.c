@@ -19,6 +19,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ESP_ERROR_CHECK(h7_uart_start_heartbeat());
     ESP_ERROR_CHECK(example_connect());
+    ESP_ERROR_CHECK(h7_uart_start_time_sync());
     ESP_ERROR_CHECK(local_http_start());
     onenet_test_start();
 }

@@ -49,6 +49,22 @@ void app_ui_update_upload_sequence(uint32_t sequence);
 void app_ui_update_light_status(uint32_t light_lux, bool tx_ok);
 
 /**
+  * @brief 刷新GY-302照度卡片，失败时保留上次读数并显示告警色。
+  * @param light_lux 最近一次有效照度，单位勒克斯。
+  * @param has_data 是否已有有效测量。
+  * @param read_ok 最近一次I2C读取是否成功。
+  * @retval 无，必须从LVGL所在线程调用。
+  */
+void app_ui_update_light_reading(uint32_t light_lux, bool has_data, bool read_ok);
+
+/**
+  * @brief 独立刷新现有模拟数据发送状态。
+  * @param tx_ok 最近一次串口发送是否成功。
+  * @retval 无，必须从LVGL所在线程调用。
+  */
+void app_ui_update_upload_status(bool tx_ok);
+
+/**
   * @brief 刷新模拟数据、帧序号和串口发送结果，上传状态保持未知。
   * @param sequence 当前发送帧序号。
   * @param temperature_c 模拟温度，单位摄氏度。
@@ -68,6 +84,17 @@ void app_ui_update_uart_test(uint32_t sequence, uint32_t temperature_c,
   * @retval 无，连续调用的间隔必须小于毫秒计数的一次回绕周期。
   */
 void app_ui_update_uptime(uint32_t tick_ms);
+
+/**
+  * @brief 按北京时间在日期时间与原有状态之间轮换显示。
+  * @param utc_seconds 最近一次网络校准的UTC秒数。
+  * @param received_tick_ms 收到校时消息时的STM32毫秒计数。
+  * @param has_time 是否已有有效网络校时。
+  * @param now_tick_ms 当前STM32毫秒计数。
+  * @retval 无，必须从LVGL所在线程调用。
+  */
+void app_ui_update_network_time(uint32_t utc_seconds, uint32_t received_tick_ms,
+                                bool has_time, uint32_t now_tick_ms);
 
 /**
   * @brief 单独更新温湿度卡片，无有效数据时显示占位符，读取失败时变色提示。

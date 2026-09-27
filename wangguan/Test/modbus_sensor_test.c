@@ -1,16 +1,9 @@
 #include "modbus_sensor.h"
-#include "cmsis_os2.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "debug_log.h"
 
 static ModbusSensorSample samples[MODBUS_SENSOR_COUNT];
-static osThreadId_t sensor_task;
-static const osThreadAttr_t sensor_attributes = {
-    .name = "modbusSensor",
-    .stack_size = 2048U,
-    .priority = osPriorityBelowNormal
-};
+static TaskHandle_t sensor_task;
 
 /**
   * @brief 轮询两个站号，设备离线时记录错误并继续采集另一站。
@@ -20,16 +13,16 @@ static const osThreadAttr_t sensor_attributes = {
 static void ModbusSensor_Task(void *argument)
 {
     (void)argument;
-    uint32_t period = osKernelGetTickFreq();
+    const TickType_t period = configTICK_RATE_HZ;
     /* 上电先留一秒稳定时间，后续失败仍按周期重试，不阻塞网关启动。 */
-    (void)osDelay(period);
-    uint32_t next_wake = osKernelGetTickCount();
+    vTaskDelay(period);
+    TickType_t next_wake = xTaskGetTickCount();
     for (;;) {
         for (uint32_t i = 0U; i < MODBUS_SENSOR_COUNT; ++i) {
             int16_t temperature;
             uint16_t humidity;
             ModbusStatus status = ModbusSensor_Read((uint8_t)(i + 1U), &temperature, &humidity);
-            /* 先更新快照并取出计数，再在临界区外每秒打一条日志。 */
+            /* 在临界区内更新快照，避免其他任务读到未完成的数据。 */
             taskENTER_CRITICAL();
             samples[i].status = status;
             samples[i].valid = status == MODBUS_OK;
@@ -41,16 +34,11 @@ static void ModbusSensor_Task(void *argument)
             } else {
                 ++samples[i].error_count;
             }
-            uint32_t ok_count = samples[i].success_count;
-            uint32_t ng_count = samples[i].error_count;
             taskEXIT_CRITICAL();
-            DebugLog_Modbus(true, status, temperature, humidity,
-                            status == MODBUS_OK, ok_count, ng_count);
         }
-        next_wake += period;
-        if ((int32_t)(next_wake - osKernelGetTickCount()) <= 0)
-            next_wake = osKernelGetTickCount() + period;
-        (void)osDelayUntil(next_wake);
+        if ((int32_t)(next_wake + period - xTaskGetTickCount()) <= 0)
+            next_wake = xTaskGetTickCount();
+        vTaskDelayUntil(&next_wake, period);
     }
 }
 
@@ -67,8 +55,8 @@ bool ModbusSensor_Start(UART_HandleTypeDef *uart)
         samples[i].address = (uint8_t)(i + 1U);
         samples[i].status = MODBUS_TIMEOUT;
     }
-    sensor_task = osThreadNew(ModbusSensor_Task, NULL, &sensor_attributes);
-    return sensor_task != NULL;
+    return xTaskCreate(ModbusSensor_Task, "modbusSensor", 2048U / sizeof(StackType_t),
+                       NULL, 16U, &sensor_task) == pdPASS;
 }
 
 /**

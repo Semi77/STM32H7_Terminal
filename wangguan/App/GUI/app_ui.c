@@ -15,6 +15,11 @@ typedef struct {
     lv_obj_t *system_value;
     lv_obj_t *resource_value;
     lv_obj_t *modbus_value;
+    lv_obj_t *date_value;
+    lv_obj_t *time_value;
+    uint64_t displayed_local_second;
+    bool clock_page_shown;
+    bool clock_has_value;
     uint32_t uptime_last_tick_ms;
     uint32_t uptime_remainder_ms;
     uint32_t uptime_total_seconds;
@@ -30,7 +35,7 @@ static app_ui_state_t s_ui;
 void app_ui_update_upload_sequence(uint32_t sequence)
 {
     char text[64];
-    lv_snprintf(text, sizeof(text), "SEQ %lu\nUPLOAD --", (unsigned long)sequence);
+    lv_snprintf(text, sizeof(text), "SEQ %lu", (unsigned long)sequence);
     lv_label_set_text(s_ui.system_value, text);
 }
 
@@ -45,8 +50,38 @@ void app_ui_update_light_status(uint32_t light_lux, bool tx_ok)
     char text[64];
     lv_snprintf(text, sizeof(text), "%lu lx", (unsigned long)light_lux);
     lv_label_set_text(s_ui.light_value, text);
+    app_ui_update_upload_status(tx_ok);
+}
+
+/**
+  * @brief 刷新GY-302照度卡片，失败时保留上次读数并显示告警色。
+  * @param light_lux 最近一次有效照度，单位勒克斯。
+  * @param has_data 是否已有有效测量。
+  * @param read_ok 最近一次I2C读取是否成功。
+  * @retval 无，必须从LVGL所在线程调用。
+  */
+void app_ui_update_light_reading(uint32_t light_lux, bool has_data, bool read_ok)
+{
+    char text[20];
+    if (has_data) {
+        lv_snprintf(text, sizeof(text), "%lu lx", (unsigned long)light_lux);
+        lv_label_set_text(s_ui.light_value, text);
+    } else {
+        lv_label_set_text(s_ui.light_value, "---- lx");
+    }
+    lv_obj_set_style_text_color(s_ui.light_value,
+                                lv_color_hex(read_ok ? 0xF4F7FC : 0xFF7A59), 0);
+}
+
+/**
+  * @brief 独立刷新现有模拟数据发送状态。
+  * @param tx_ok 最近一次串口发送是否成功。
+  * @retval 无，必须从LVGL所在线程调用。
+  */
+void app_ui_update_upload_status(bool tx_ok)
+{
     lv_label_set_text(s_ui.ethernet_value,
-                      tx_ok ? "SIM DATA\nTX OK" : "SIM DATA\nTX ERROR");
+                      tx_ok ? "TX OK" : "TX ERR");
     lv_obj_set_style_text_color(s_ui.ethernet_value,
                                 lv_color_hex(tx_ok ? 0x45D19A : 0xFF7A59), 0);
 }
@@ -64,6 +99,8 @@ void app_ui_update_modbus_readout(const char *status_text,
                                   bool tx_started, bool tx_complete, uint16_t rx_bytes)
 {
     char text[48];
+    (void)success_count;
+    (void)error_count;
 
     if(status_text == NULL)
     {
@@ -71,9 +108,8 @@ void app_ui_update_modbus_readout(const char *status_text,
         lv_obj_set_style_text_color(s_ui.modbus_value, lv_color_hex(0x8FA4C7), 0);
         return;
     }
-    /* 同时给出状态和成功/失败计数，便于区分"没接通"与"偶发校验错"。 */
-    lv_snprintf(text, sizeof(text), "RS485 %s %lu/%lu T%u C%u R%u", status_text,
-                (unsigned long)success_count, (unsigned long)error_count,
+    /* 显示发送启动、发送完成和接收字节数，便于无调试器时定位超时阶段。 */
+    lv_snprintf(text, sizeof(text), "485 %s T%uC%uR%u", status_text,
                 tx_started ? 1U : 0U, tx_complete ? 1U : 0U,
                 (unsigned int)rx_bytes);
     lv_label_set_text(s_ui.modbus_value, text);
@@ -166,29 +202,29 @@ static lv_obj_t *create_sensor_card(lv_obj_t *parent,
     lv_obj_t *title_label;
     lv_obj_t *value_label;
 
-    lv_obj_set_size(card, 92, 82);
-    lv_obj_set_style_radius(card, 10, 0);
+    lv_obj_set_size(card, 120, 24);
+    lv_obj_set_style_radius(card, 4, 0);
     lv_obj_set_style_border_width(card, 0, 0);
     lv_obj_set_style_bg_color(card, lv_color_hex(0x18243A), 0);
-    lv_obj_set_style_pad_all(card, 8, 0);
+    lv_obj_set_style_pad_all(card, 3, 0);
     lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
 
     bar = lv_obj_create(card);
-    lv_obj_set_size(bar, 32, 3);
-    lv_obj_align(bar, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_size(bar, 3, 16);
+    lv_obj_align(bar, LV_ALIGN_LEFT_MID, 0, 0);
     lv_obj_set_style_radius(bar, 2, 0);
     lv_obj_set_style_border_width(bar, 0, 0);
     lv_obj_set_style_bg_color(bar, accent, 0);
 
     title_label = lv_label_create(card);
     lv_label_set_text(title_label, title);
-    lv_obj_align(title_label, LV_ALIGN_TOP_LEFT, 0, 12);
+    lv_obj_align(title_label, LV_ALIGN_LEFT_MID, 8, 0);
+    lv_obj_set_style_text_font(title_label, &lv_font_montserrat_10, 0);
     lv_obj_set_style_text_color(title_label, lv_color_hex(0x8FA4C7), 0);
 
     value_label = lv_label_create(card);
     lv_label_set_text(value_label, value);
-    lv_obj_align(value_label, LV_ALIGN_BOTTOM_LEFT, 0, 0);
-    lv_obj_set_style_text_font(value_label, &lv_font_montserrat_20, 0);
+    lv_obj_align(value_label, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_obj_set_style_text_color(value_label, lv_color_hex(0xF4F7FC), 0);
 
     return value_label;
@@ -209,16 +245,14 @@ void app_ui_create(void)
     lv_obj_t *offline_icon;
     lv_obj_t *cards;
     lv_obj_t *footer;
-    lv_obj_t *footer_title;
     lv_obj_t *footer_left_value;
-    lv_obj_t *footer_divider;
     lv_obj_t *footer_right_value;
 
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x0B1220), 0);
-    lv_obj_set_style_pad_all(screen, 8, 0);
+    lv_obj_set_style_pad_all(screen, 4, 0);
 
     header = lv_obj_create(screen);
-    lv_obj_set_size(header, 304, 38);
+    lv_obj_set_size(header, 120, 18);
     lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_bg_opa(header, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(header, 0, 0);
@@ -226,13 +260,13 @@ void app_ui_create(void)
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
     title = lv_label_create(header);
-    lv_label_set_text(title, "ENV GATEWAY");
+    lv_label_set_text(title, "ENV");
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 0, 0);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_10, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xF4F7FC), 0);
 
     network_panel = lv_obj_create(header);
-    lv_obj_set_size(network_panel, 90, 28);
+    lv_obj_set_size(network_panel, 76, 18);
     lv_obj_align(network_panel, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_obj_set_style_bg_opa(network_panel, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(network_panel, 0, 0);
@@ -255,13 +289,14 @@ void app_ui_create(void)
     status = lv_label_create(network_panel);
     lv_label_set_text(status, "OFFLINE");
     lv_obj_align(status, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_set_style_text_font(status, &lv_font_montserrat_10, 0);
     lv_obj_set_style_text_color(status, lv_color_hex(0xFF7A59), 0);
     s_ui.network_value = status;
 
     cards = lv_obj_create(screen);
-    lv_obj_set_size(cards, 304, 86);
-    lv_obj_align(cards, LV_ALIGN_TOP_MID, 0, 42);
-    lv_obj_set_flex_flow(cards, LV_FLEX_FLOW_ROW);
+    lv_obj_set_size(cards, 120, 76);
+    lv_obj_align(cards, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_set_flex_flow(cards, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(cards, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_bg_opa(cards, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(cards, 0, 0);
@@ -272,61 +307,144 @@ void app_ui_create(void)
     s_ui.light_value = create_sensor_card(cards, "LIGHT", "---- lx", lv_color_hex(0xFFD166));
 
     footer = lv_obj_create(screen);
-    lv_obj_set_size(footer, 304, 91);
+    lv_obj_set_size(footer, 120, 54);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_set_style_radius(footer, 10, 0);
+    lv_obj_set_style_radius(footer, 4, 0);
     lv_obj_set_style_border_width(footer, 1, 0);
     lv_obj_set_style_border_color(footer, lv_color_hex(0x263755), 0);
     lv_obj_set_style_bg_color(footer, lv_color_hex(0x111C30), 0);
+    lv_obj_set_style_pad_all(footer, 3, 0);
     lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
     /* 在底部面板创建后放置RS485状态，避免使用未初始化的父对象。 */
     s_ui.modbus_value = lv_label_create(footer);
     lv_label_set_text(s_ui.modbus_value, "RS485 --");
-    lv_obj_align(s_ui.modbus_value, LV_ALIGN_TOP_LEFT, 0, 18);
+    lv_obj_set_width(s_ui.modbus_value, 112);
+    lv_label_set_long_mode(s_ui.modbus_value, LV_LABEL_LONG_CLIP);
+    lv_obj_align(s_ui.modbus_value, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_text_font(s_ui.modbus_value, &lv_font_montserrat_10, 0);
     lv_obj_set_style_text_color(s_ui.modbus_value, lv_color_hex(0x8FA4C7), 0);
-
-    footer_title = lv_label_create(footer);
-    lv_label_set_text(footer_title, "SYSTEM STATUS");
-    lv_obj_align(footer_title, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_set_style_text_color(footer_title, lv_color_hex(0x8FA4C7), 0);
 
     s_ui.uptime_value = lv_label_create(footer);
     lv_label_set_text(s_ui.uptime_value, "UP 00:00:00");
-    lv_obj_align(s_ui.uptime_value, LV_ALIGN_TOP_RIGHT, 0, 0);
+    lv_obj_align(s_ui.uptime_value, LV_ALIGN_TOP_LEFT, 0, 12);
+    lv_obj_set_style_text_font(s_ui.uptime_value, &lv_font_montserrat_10, 0);
     lv_obj_set_style_text_color(s_ui.uptime_value, lv_color_hex(0x45D19A), 0);
 
     footer_left_value = lv_label_create(footer);
-    lv_label_set_text(footer_left_value, "STM32H743\nW5500 DOWN");
-    lv_obj_align(footer_left_value, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_label_set_text(footer_left_value, "TX --");
+    lv_obj_set_width(footer_left_value, 70);
+    lv_label_set_long_mode(footer_left_value, LV_LABEL_LONG_CLIP);
+    lv_obj_align(footer_left_value, LV_ALIGN_TOP_LEFT, 0, 24);
+    lv_obj_set_style_text_font(footer_left_value, &lv_font_montserrat_10, 0);
     lv_obj_set_style_text_color(footer_left_value, lv_color_hex(0xD8E2F2), 0);
     s_ui.ethernet_value = footer_left_value;
 
-    footer_divider = lv_obj_create(footer);
-    lv_obj_set_size(footer_divider, 2, 34);
-    lv_obj_align(footer_divider, LV_ALIGN_BOTTOM_LEFT, 99, 0);
-    lv_obj_set_style_radius(footer_divider, 1, 0);
-    lv_obj_set_style_border_width(footer_divider, 0, 0);
-    lv_obj_set_style_bg_color(footer_divider, lv_color_hex(0x526784), 0);
-    lv_obj_clear_flag(footer_divider, LV_OBJ_FLAG_SCROLLABLE);
-
     footer_right_value = lv_label_create(footer);
-    lv_label_set_text(footer_right_value, "MQTT DOWN\nFLASH ERR");
-    lv_obj_align(footer_right_value, LV_ALIGN_BOTTOM_LEFT, 111, 0);
+    lv_label_set_text(footer_right_value, "SEQ --");
+    lv_obj_set_width(footer_right_value, 70);
+    lv_label_set_long_mode(footer_right_value, LV_LABEL_LONG_CLIP);
+    lv_obj_align(footer_right_value, LV_ALIGN_TOP_LEFT, 0, 36);
+    lv_obj_set_style_text_font(footer_right_value, &lv_font_montserrat_10, 0);
     lv_obj_set_style_text_color(footer_right_value, lv_color_hex(0xD8E2F2), 0);
     s_ui.system_value = footer_right_value;
     /* 资源占用独立贴右下角，不随其他标签的偏移量漂移。 */
     s_ui.resource_value = lv_label_create(footer);
-    lv_label_set_text(s_ui.resource_value, "CPU --%\nMEM --%");
+    lv_label_set_text(s_ui.resource_value, "C --%\nM --%");
+    lv_obj_set_width(s_ui.resource_value, 40);
+    lv_obj_set_style_text_font(s_ui.resource_value, &lv_font_montserrat_10, 0);
     lv_obj_set_style_text_color(s_ui.resource_value, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_align(s_ui.resource_value, LV_TEXT_ALIGN_RIGHT, 0);
     /* 忽略footer的flex布局，避免与左侧MQTT/FLASH标签互相挤动。 */
     lv_obj_add_flag(s_ui.resource_value, LV_OBJ_FLAG_IGNORE_LAYOUT);
-    lv_obj_align(s_ui.resource_value, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_align(s_ui.resource_value, LV_ALIGN_TOP_RIGHT, 0, 24);
+    /* 时间页复用底部区域，首次网络校时前保持原有状态页。 */
+    s_ui.date_value = lv_label_create(footer);
+    lv_label_set_text(s_ui.date_value, "---- -- --");
+    lv_obj_align(s_ui.date_value, LV_ALIGN_TOP_MID, 0, 5);
+    lv_obj_set_style_text_color(s_ui.date_value, lv_color_hex(0x8FA4C7), 0);
+    lv_obj_add_flag(s_ui.date_value, LV_OBJ_FLAG_HIDDEN);
+
+    s_ui.time_value = lv_label_create(footer);
+    lv_label_set_text(s_ui.time_value, "--:--:--");
+    lv_obj_align(s_ui.time_value, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_text_font(s_ui.time_value, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(s_ui.time_value, lv_color_hex(0xF4F7FC), 0);
+    lv_obj_add_flag(s_ui.time_value, LV_OBJ_FLAG_HIDDEN);
     /* 毫秒计数从上电零点累计，因此首次更新会包含屏幕初始化所用时间。 */
     s_ui.uptime_last_tick_ms = 0U;
     s_ui.uptime_remainder_ms = 0U;
     s_ui.uptime_total_seconds = 0U;
+}
+
+/**
+  * @brief 将UTC秒数换算为北京时间并按秒更新日期和时钟标签。
+  * @param utc_seconds 最近一次网络校准的UTC秒数。
+  * @param received_tick_ms 校时消息到达时的毫秒计数。
+  * @param has_time 是否已有有效网络时间。
+  * @param now_tick_ms 当前毫秒计数。
+  * @retval 无，时间页每五秒与状态页轮换。
+  */
+void app_ui_update_network_time(uint32_t utc_seconds, uint32_t received_tick_ms,
+                                bool has_time, uint32_t now_tick_ms)
+{
+    bool show_clock = has_time && ((now_tick_ms / 5000U) & 1U) != 0U;
+    if (show_clock != s_ui.clock_page_shown) {
+        lv_obj_t *status_labels[] = {s_ui.modbus_value, s_ui.uptime_value,
+                                     s_ui.ethernet_value, s_ui.system_value,
+                                     s_ui.resource_value};
+        for (uint32_t i = 0U; i < sizeof(status_labels) / sizeof(status_labels[0]); ++i) {
+            if (show_clock) lv_obj_add_flag(status_labels[i], LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_clear_flag(status_labels[i], LV_OBJ_FLAG_HIDDEN);
+        }
+        if (show_clock) {
+            lv_obj_clear_flag(s_ui.date_value, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(s_ui.time_value, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_ui.date_value, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(s_ui.time_value, LV_OBJ_FLAG_HIDDEN);
+        }
+        s_ui.clock_page_shown = show_clock;
+    }
+    if (!has_time) return;
+
+    uint64_t local_second = (uint64_t)utc_seconds + 8U * 3600U +
+                            (uint32_t)(now_tick_ms - received_tick_ms) / 1000U;
+    if (s_ui.clock_has_value && local_second == s_ui.displayed_local_second) return;
+    s_ui.displayed_local_second = local_second;
+    s_ui.clock_has_value = true;
+
+    uint32_t days = (uint32_t)(local_second / 86400U);
+    uint32_t seconds_today = (uint32_t)(local_second % 86400U);
+    uint32_t year = 1970U;
+    while (1) {
+        bool leap = (year % 4U == 0U) && (year % 100U != 0U || year % 400U == 0U);
+        uint32_t year_days = leap ? 366U : 365U;
+        if (days < year_days) break;
+        days -= year_days;
+        ++year;
+    }
+    static const uint8_t month_days[] = {31U, 28U, 31U, 30U, 31U, 30U,
+                                         31U, 31U, 30U, 31U, 30U, 31U};
+    uint32_t month = 1U;
+    while (month <= 12U) {
+        uint32_t count = month_days[month - 1U];
+        if (month == 2U && (year % 4U == 0U) &&
+            (year % 100U != 0U || year % 400U == 0U)) ++count;
+        if (days < count) break;
+        days -= count;
+        ++month;
+    }
+
+    char text[20];
+    lv_snprintf(text, sizeof(text), "%04lu-%02lu-%02lu",
+                (unsigned long)year, (unsigned long)month, (unsigned long)(days + 1U));
+    lv_label_set_text(s_ui.date_value, text);
+    lv_snprintf(text, sizeof(text), "%02lu:%02lu:%02lu",
+                (unsigned long)(seconds_today / 3600U),
+                (unsigned long)((seconds_today / 60U) % 60U),
+                (unsigned long)(seconds_today % 60U));
+    lv_label_set_text(s_ui.time_value, text);
 }
 
 /**
@@ -402,12 +520,8 @@ void app_ui_update_data(const app_ui_data_t *data)
         lv_obj_clear_flag(s_ui.network_offline_icon, LV_OBJ_FLAG_HIDDEN);
     }
 
-    lv_label_set_text(s_ui.ethernet_value,
-                      data->ethernet_link ? "STM32H743\nW5500 LINK" : "STM32H743\nW5500 DOWN");
-    lv_label_set_text(s_ui.system_value,
-                      data->mqtt_connected
-                          ? (data->flash_ready ? "MQTT READY\nFLASH OK" : "MQTT READY\nFLASH ERR")
-                          : (data->flash_ready ? "MQTT DOWN\nFLASH OK" : "MQTT DOWN\nFLASH ERR"));
+    lv_label_set_text(s_ui.ethernet_value, data->ethernet_link ? "NET OK" : "NET DOWN");
+    lv_label_set_text(s_ui.system_value, data->mqtt_connected ? "MQTT OK" : "MQTT DOWN");
 }
 
 /**
@@ -420,7 +534,7 @@ void app_ui_update_resource(uint32_t cpu_percent, uint32_t heap_percent)
 {
     char text[24];
 
-    lv_snprintf(text, sizeof(text), "CPU %lu%%\nMEM %lu%%",
+    lv_snprintf(text, sizeof(text), "C %lu%%\nM %lu%%",
                 (unsigned long)cpu_percent, (unsigned long)heap_percent);
     lv_label_set_text(s_ui.resource_value, text);
 }

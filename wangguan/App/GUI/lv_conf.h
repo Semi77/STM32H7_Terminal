@@ -1,6 +1,6 @@
 /**
  * @file lv_conf.h
- * @brief 为STM32H743�?320x240 RGB565屏幕配置LVGL 9.5�?
+ * @brief 为STM32H743的128×160 RGB565屏幕配置LVGL。
  */
 
 #ifndef LV_CONF_H
@@ -26,6 +26,7 @@
 #define LV_DRAW_SW_SUPPORT_I1 0
 
 #define LV_FONT_MONTSERRAT_20 1
+#define LV_FONT_MONTSERRAT_10 1
 
 #define LV_USE_ASSERT_NULL 1
 #define LV_USE_ASSERT_MALLOC 1

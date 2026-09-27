@@ -69,8 +69,10 @@ extern volatile bool g_usart3_started;
 #define DHT_GPIO_Port GPIOE
 #define GPIO_LED_Pin GPIO_PIN_13
 #define GPIO_LED_GPIO_Port GPIOC
-#define Modbus_Enable_Pin GPIO_PIN_0
-#define Modbus_Enable_GPIO_Port GPIOA
+#define Modbus_DE_Pin GPIO_PIN_0
+#define Modbus_DE_GPIO_Port GPIOA
+#define Modbus_RE_Pin GPIO_PIN_1
+#define Modbus_RE_GPIO_Port GPIOA
 #define TEST_TX_Pin GPIO_PIN_2
 #define TEST_TX_GPIO_Port GPIOA
 #define TEST_RX_Pin GPIO_PIN_3

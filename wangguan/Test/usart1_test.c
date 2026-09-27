@@ -2,7 +2,8 @@
 #include "Modbus.h"
 #include "main.h"
 
-#include "cmsis_os2.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 #include <stdio.h>
 
@@ -23,12 +24,6 @@ static uint8_t usart1_test_receive_buffer[USART1_TEST_RECEIVE_BUFFER_SIZE];
 static uint8_t usart1_test_response_buffer[40U];
 static volatile uint16_t usart1_test_received_length;
 static volatile Usart1TestState_t usart1_test_state = USART1_TEST_STATE_ERROR;
-
-static const osThreadAttr_t usart1_test_task_attributes = {
-  .name = "usart1TestTask",
-  .stack_size = 1024U,
-  .priority = (osPriority_t)osPriorityLow,
-};
 
 /**
   * @brief 重新启动一次最长257字节的USART1空闲帧接收。
@@ -125,7 +120,7 @@ static void Usart1Test_Task(void *argument)
     {
       g_usart1_heartbeat = HAL_GetTick();
     }
-    osDelay(1U);
+    vTaskDelay(1U);
   }
 }
 
@@ -136,8 +131,6 @@ static void Usart1Test_Task(void *argument)
   */
 HAL_StatusTypeDef Usart1Test_Start(UART_HandleTypeDef *huart)
 {
-  osThreadId_t task_handle;
-
   if ((huart == NULL) || (huart->Instance != USART1))
   {
     return HAL_ERROR;
@@ -149,8 +142,8 @@ HAL_StatusTypeDef Usart1Test_Start(UART_HandleTypeDef *huart)
     return HAL_ERROR;
   }
 
-  task_handle = osThreadNew(Usart1Test_Task, NULL, &usart1_test_task_attributes);
-  if (task_handle == NULL)
+  if (xTaskCreate(Usart1Test_Task, "usart1TestTask", 1024U / sizeof(StackType_t),
+                  NULL, 8U, NULL) != pdPASS)
   {
     (void)HAL_UART_AbortReceive(usart1_test_handle);
     usart1_test_state = USART1_TEST_STATE_ERROR;

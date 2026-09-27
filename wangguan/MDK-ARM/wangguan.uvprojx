@@ -341,7 +341,7 @@
               <MiscControls></MiscControls>
               <Define>USE_PWR_LDO_SUPPLY,USE_HAL_DRIVER,STM32H743xx</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../../shared;../Drivers/Screen;../Drivers/DHT11;../Drivers/ModbusRTU;../Drivers/W25Q64;../Test;../App/GUI;../Middlewares/Third_Party/LVGL;../Drivers/STM32H7xx_HAL_Driver/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32H7xx/Include;../Drivers/CMSIS/Include;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2;../Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F;../Drivers/CMSIS/RTOS2/Include;../FATFS/Target;../FATFS/App;../Middlewares/Third_Party/FatFs/src</IncludePath>
+              <IncludePath>../Core/Inc;../../shared;../Drivers/Screen;../Drivers/DHT11;../Drivers/BH1750;../Drivers/ModbusRTU;../Drivers/W25Q64;../Test;../App/GUI;../Middlewares/Third_Party/LVGL;../Drivers/STM32H7xx_HAL_Driver/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32H7xx/Include;../Drivers/CMSIS/Include;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F;../FATFS/Target;../FATFS/App;../Middlewares/Third_Party/FatFs/src;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2;../Drivers/CMSIS/RTOS2/Include</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -409,11 +409,6 @@
               <FileName>cpu_stats.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/cpu_stats.c</FilePath>
-            </File>
-            <File>
-              <FileName>debug_log.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Core/Src/debug_log.c</FilePath>
             </File>
             <File>
               <FileName>main.c</FileName>
@@ -548,9 +543,9 @@
           <GroupName>Application/User/Screen</GroupName>
           <Files>
             <File>
-              <FileName>ili9341.c</FileName>
+              <FileName>st7735s.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../Drivers/Screen/ili9341.c</FilePath>
+              <FilePath>../Drivers/Screen/st7735s.c</FilePath>
             </File>
             <File>
               <FileName>screen_test.c</FileName>
@@ -596,6 +591,16 @@
               <FileName>dht11.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Drivers/DHT11/dht11.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Application/User/BH1750</GroupName>
+          <Files>
+            <File>
+              <FileName>bh1750.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Drivers/BH1750/bh1750.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -4702,62 +4707,6 @@
                 </FileArmAds>
               </FileOption>
             </File>
-            <File>
-              <FileName>sd_diskio.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../FATFS/Target/sd_diskio.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>0</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument></CustomArgument>
-                  <IncludeLibraryModules></IncludeLibraryModules>
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>0</Optim>
-                    <oTime>2</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls></MiscControls>
-                      <Define></Define>
-                      <Undefine></Undefine>
-                      <IncludePath></IncludePath>
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
           </Files>
         </Group>
         <Group>
@@ -4962,6 +4911,11 @@
             </GroupArmAds>
           </GroupOption>
           <Files>
+            <File>
+              <FileName>unicode.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Middlewares\Third_Party\FatFs\src\option\unicode.c</FilePath>
+            </File>
             <File>
               <FileName>diskio.c</FileName>
               <FileType>1</FileType>
@@ -5185,67 +5139,6 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
-            </File>
-            <File>
-              <FileName>cc936.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FatFs/src/option/cc936.c</FilePath>
-              <FileOption>
-                <CommonProperty>
-                  <UseCPPCompiler>2</UseCPPCompiler>
-                  <RVCTCodeConst>0</RVCTCodeConst>
-                  <RVCTZI>0</RVCTZI>
-                  <RVCTOtherData>0</RVCTOtherData>
-                  <ModuleSelection>0</ModuleSelection>
-                  <IncludeInBuild>0</IncludeInBuild>
-                  <AlwaysBuild>2</AlwaysBuild>
-                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
-                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
-                  <PublicsOnly>2</PublicsOnly>
-                  <StopOnExitCode>11</StopOnExitCode>
-                  <CustomArgument></CustomArgument>
-                  <IncludeLibraryModules></IncludeLibraryModules>
-                  <ComprImg>1</ComprImg>
-                </CommonProperty>
-                <FileArmAds>
-                  <Cads>
-                    <interw>2</interw>
-                    <Optim>0</Optim>
-                    <oTime>2</oTime>
-                    <SplitLS>2</SplitLS>
-                    <OneElfS>2</OneElfS>
-                    <Strict>2</Strict>
-                    <EnumInt>2</EnumInt>
-                    <PlainCh>2</PlainCh>
-                    <Ropi>2</Ropi>
-                    <Rwpi>2</Rwpi>
-                    <wLevel>0</wLevel>
-                    <uThumb>2</uThumb>
-                    <uSurpInc>2</uSurpInc>
-                    <uC99>2</uC99>
-                    <uGnu>2</uGnu>
-                    <useXO>2</useXO>
-                    <v6Lang>0</v6Lang>
-                    <v6LangP>0</v6LangP>
-                    <vShortEn>2</vShortEn>
-                    <vShortWch>2</vShortWch>
-                    <v6Lto>2</v6Lto>
-                    <v6WtE>2</v6WtE>
-                    <v6Rtti>2</v6Rtti>
-                    <VariousControls>
-                      <MiscControls></MiscControls>
-                      <Define></Define>
-                      <Undefine></Undefine>
-                      <IncludePath></IncludePath>
-                    </VariousControls>
-                  </Cads>
-                </FileArmAds>
-              </FileOption>
-            </File>
-            <File>
-              <FileName>unicode.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Middlewares\Third_Party\FatFs\src\option\unicode.c</FilePath>
             </File>
           </Files>
         </Group>

@@ -5,7 +5,7 @@
 #include "boot_ota.h"
 #include "ota_install.h"
 #include "ota_store.h"
-#include "ili9341.h"
+#include "st7735s.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -76,14 +76,14 @@ static bool display_init(void)
     boot_spi1.Init.Mode = SPI_MODE_MASTER;
     boot_spi1.Init.Direction = SPI_DIRECTION_2LINES_TXONLY;
     boot_spi1.Init.DataSize = SPI_DATASIZE_8BIT;
-    boot_spi1.Init.CLKPolarity = SPI_POLARITY_HIGH;
-    boot_spi1.Init.CLKPhase = SPI_PHASE_2EDGE;
+    boot_spi1.Init.CLKPolarity = SPI_POLARITY_LOW;
+    boot_spi1.Init.CLKPhase = SPI_PHASE_1EDGE;
     boot_spi1.Init.NSS = SPI_NSS_SOFT;
     boot_spi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_64;
     boot_spi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
     boot_spi1.Init.MasterKeepIOState = SPI_MASTER_KEEP_IO_STATE_ENABLE;
     boot_spi1.Init.FifoThreshold = SPI_FIFO_THRESHOLD_01DATA;
-    return HAL_SPI_Init(&boot_spi1) == HAL_OK && ILI9341_Init(&boot_spi1) == HAL_OK;
+    return HAL_SPI_Init(&boot_spi1) == HAL_OK && ST7735S_Init(&boot_spi1) == HAL_OK;
 }
 
 /**
@@ -136,24 +136,25 @@ static bool display_page(void)
         {0x7f,0x49,0x49,0x49,0x41}, /* E */
         {0x7f,0x09,0x19,0x29,0x46}, /* R */
     };
-    if (ILI9341_FillScreen(0x0841U) != HAL_OK) return false;
+    if (ST7735S_FillScreen(0x0841U) != HAL_OK) return false;
     for (uint32_t i = 0; i < 10; ++i)
         for (uint32_t x = 0; x < 5; ++x)
             for (uint32_t y = 0; y < 7; ++y)
                 if ((letters[i][x] & (1U << y)) &&
-                    ILI9341_FillRect(40U+i*24U+x*4U, 90U+y*4U, 4U, 4U,
-                                     ILI9341_COLOR_WHITE) != HAL_OK) return false;
-    return ILI9341_FillRect(40U, 140U, 236U, 4U, ILI9341_COLOR_CYAN) == HAL_OK;
+                    ST7735S_FillRect(4U+i*12U+x*2U, 24U+y*2U, 2U, 2U,
+                                     ST7735S_COLOR_WHITE) != HAL_OK) return false;
+    return ST7735S_FillRect(8U, 48U, 112U, 2U, ST7735S_COLOR_CYAN) == HAL_OK;
 }
 
 typedef struct {
     char code;
     uint8_t columns[5];
-} BootErrorGlyph;
+} BootGlyph;
 
-/* 错误提示只保留所需的5x7字形，避免引入完整字体库。 */
-static const BootErrorGlyph boot_error_glyphs[] = {
+/* 状态和错误提示只保留所需的5x7字形，避免引入完整字体库。 */
+static const BootGlyph boot_glyphs[] = {
     {' ',{0,0,0,0,0}}, {'0',{0x3E,0x51,0x49,0x45,0x3E}},
+    {'%',{0x63,0x13,0x08,0x64,0x63}},
     {'1',{0,0x42,0x7F,0x40,0}}, {'2',{0x42,0x61,0x51,0x49,0x46}},
     {'3',{0x21,0x41,0x45,0x4B,0x31}}, {'4',{0x18,0x14,0x12,0x7F,0x10}},
     {'5',{0x27,0x45,0x45,0x45,0x39}}, {'6',{0x3C,0x4A,0x49,0x49,0x30}},
@@ -163,11 +164,14 @@ static const BootErrorGlyph boot_error_glyphs[] = {
     {'D',{0x7F,0x41,0x41,0x22,0x1C}}, {'E',{0x7F,0x49,0x49,0x49,0x41}},
     {'F',{0x7F,0x09,0x09,0x09,0x01}}, {'G',{0x3E,0x41,0x49,0x49,0x7A}},
     {'H',{0x7F,0x08,0x08,0x08,0x7F}}, {'I',{0,0x41,0x7F,0x41,0}},
+    {'K',{0x7F,0x08,0x14,0x22,0x41}},
     {'L',{0x7F,0x40,0x40,0x40,0x40}}, {'M',{0x7F,0x02,0x0C,0x02,0x7F}},
     {'N',{0x7F,0x04,0x08,0x10,0x7F}}, {'O',{0x3E,0x41,0x41,0x41,0x3E}},
+    {'P',{0x7F,0x09,0x09,0x09,0x06}},
     {'R',{0x7F,0x09,0x19,0x29,0x46}}, {'S',{0x46,0x49,0x49,0x49,0x31}},
     {'T',{0x01,0x01,0x7F,0x01,0x01}}, {'U',{0x3F,0x40,0x40,0x40,0x3F}},
-    {'V',{0x1F,0x20,0x40,0x20,0x1F}}, {'Y',{0x07,0x08,0x70,0x08,0x07}},
+    {'V',{0x1F,0x20,0x40,0x20,0x1F}}, {'W',{0x3F,0x40,0x38,0x40,0x3F}},
+    {'Y',{0x07,0x08,0x70,0x08,0x07}},
     {0,{0,0,0,0,0}}
 };
 
@@ -199,16 +203,36 @@ static const char *boot_error_reason(uint32_t code)
 static void display_error(uint32_t code)
 {
     char text[24];
-    uint16_t x=46U;
+    uint16_t x=8U;
     (void)snprintf(text,sizeof(text),"ERR %02lu %s",(unsigned long)code,boot_error_reason(code));
-    if (ILI9341_FillRect(40U,207U,236U,20U,0x7800U)!=HAL_OK) return;
-    for (const char *p=text; *p && x<270U; ++p, x+=12U) {
-        const BootErrorGlyph *glyph=boot_error_glyphs;
+    if (ST7735S_FillRect(8U,120U,112U,12U,0x7800U)!=HAL_OK) return;
+    for (const char *p=text; *p && x<=115U; ++p, x+=6U) {
+        const BootGlyph *glyph=boot_glyphs;
         while (glyph->code && glyph->code!=*p) ++glyph;
         for (uint16_t col=0; col<5U; ++col)
             for (uint16_t row=0; row<7U; ++row)
                 if (glyph->columns[col] & (1U<<row))
-                    (void)ILI9341_FillRect(x+col*2U,210U+row*2U,2U,2U,ILI9341_COLOR_WHITE);
+                    (void)ST7735S_DrawPixel(x+col,122U+row,ST7735S_COLOR_WHITE);
+    }
+}
+
+/**
+  * @brief 清除进度条下方的旧状态，并绘制新的英文阶段文字。
+  * @param text 要显示的零结尾英文字符串。
+  * @param color 文字的RGB565颜色。
+  * @retval 无。
+  */
+void BootPage_DrawStatus(const char *text, uint16_t color)
+{
+    uint16_t x=8U;
+    if (ST7735S_FillRect(8U,94U,112U,12U,0x0841U)!=HAL_OK) return;
+    for (const char *p=text; *p && x<=115U; ++p, x+=6U) {
+        const BootGlyph *glyph=boot_glyphs;
+        while (glyph->code && glyph->code!=*p) ++glyph;
+        for (uint16_t col=0; col<5U; ++col)
+            for (uint16_t row=0; row<7U; ++row)
+                if (glyph->columns[col] & (1U<<row))
+                    (void)ST7735S_DrawPixel(x+col,96U+row,color);
     }
 }
 
@@ -226,6 +250,7 @@ void BootPage_Run(void)
     bool requested = BootRequest_Take();
     bool uart_ok = uart_init();
     bool screen_ok = display_init() && display_page();
+    if (screen_ok) BootPage_DrawStatus("WAITING",ST7735S_COLOR_CYAN);
     (void)BootOta_Init();
     /* 必须先恢复未完成安装，再读取应用向量，避免访问断电留下的Flash字。 */
     uint32_t recovery=OtaInstall_Recover();

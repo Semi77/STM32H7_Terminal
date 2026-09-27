@@ -3,8 +3,9 @@
 #include "ota_install.h"
 #include "memory_layout.h"
 #include "w25q64_qspi.h"
-#include "ili9341.h"
+#include "st7735s.h"
 #include "boot_trial.h"
+#include "boot_page.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -177,22 +178,35 @@ bool OtaFlash_Erase(uint32_t address)
     return flash_ok && W25Q64_SectorErase(address)==HAL_OK;
 }
 /**
-  * @brief 显示done/total进度，state为0准备、1接收、2下载校验、3下载完成、4取消、5失败、6擦除、7安装、8安装校验、9安装完成。
+  * @brief 显示done/total进度及英文阶段，state为0准备、1接收、2下载校验、3下载完成、4取消、5失败、6擦除、7安装、8安装校验、9安装完成。
   * @retval 无，显示失败不改变Flash操作结果。
   */
 void OtaFlash_Progress(uint32_t done, uint32_t total, uint32_t state)
 {
     static uint32_t previous=0xFFFFFFFFU;
-    uint32_t width=total?(done*236U/total):0;
+    static uint32_t previous_label=0xFFFFFFFFU;
+    uint32_t width=total?(done*112U/total):0;
     uint32_t key=(state<<16)|width;
     if (previous==key) return;
     previous=key;
     uint16_t color=(state==3 || state==9)?0x07E0U:(state==4 || state==5)?0xF800U:
                    (state==2 || state==8)?0xFFE0U:state==6?0xF81FU:0x07FFU;
-    (void)ILI9341_FillRect(40,170,236,12,0x2104U);
-    if (width) (void)ILI9341_FillRect(40,170,(uint16_t)width,12,color);
-    /* 十个状态格与协议处理阶段一一对应。 */
-    for (unsigned i=0;i<10;++i)
-        (void)ILI9341_FillRect((uint16_t)(40+i*24),195,20,6,i==state?color:0x2104U);
+    (void)ST7735S_FillRect(8U,76U,112U,10U,0x2104U);
+    if (width) (void)ST7735S_FillRect(8U,76U,(uint16_t)width,10U,color);
+    static const char *const stages[] = {
+        "WAITING", "RECEIVING", "CHECK FILE", "FILE READY", "CANCELED",
+        "FAILED", "ERASING", "INSTALLING", "CHECK APP", "DONE"
+    };
+    uint32_t percent=total?done*100U/total:0U;
+    uint32_t label_key=(state<<8)|percent;
+    if (previous_label==label_key) return;
+    previous_label=label_key;
+    char label[24];
+    const char *stage=state<10U?stages[state]:"FAILED";
+    if (total && (state==1U || state==2U || state==6U || state==7U || state==8U))
+        (void)snprintf(label,sizeof(label),"%s %lu%%",stage,(unsigned long)percent);
+    else
+        (void)snprintf(label,sizeof(label),"%s",stage);
+    BootPage_DrawStatus(label,color);
 }
 

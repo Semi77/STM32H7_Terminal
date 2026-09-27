@@ -8,7 +8,7 @@
 DWT_Type mock_dwt;
 CoreDebug_Type mock_debug;
 uint32_t SystemCoreClock = 480000000U;
-static uint32_t now_ms, next_byte_ms, direction, signals;
+static uint32_t now_ms, next_byte_ms, de_state, re_state, signals;
 static uint8_t *receive_target;
 static uint8_t response[48];
 static unsigned response_length, response_index, transmit_count;
@@ -17,25 +17,26 @@ static UART_HandleTypeDef uart = {USART2, {9600U, 8U, 0U, 1U}};
 
 /** @brief 提供模拟时钟、信号量及任务接口，延时单位为毫秒。 */
 uint32_t HAL_GetTick(void) { return now_ms; }
-int osKernelGetState(void) { return osKernelRunning; }
-uint32_t osKernelGetTickFreq(void) { return 1000U; }
-uint32_t osKernelGetTickCount(void) { return now_ms; }
-osSemaphoreId_t osSemaphoreNew(uint32_t max, uint32_t initial, const void *attr)
-{ (void)max; (void)attr; signals = initial; return &signals; }
-osStatus_t osSemaphoreRelease(osSemaphoreId_t id)
-{ (void)id; signals = 1U; return osOK; }
-osThreadId_t osThreadNew(void (*entry)(void *), void *arg, const osThreadAttr_t *attr)
-{ (void)entry; (void)arg; (void)attr; return &uart; }
-osStatus_t osDelay(uint32_t ticks) { now_ms += ticks; return osOK; }
-osStatus_t osDelayUntil(uint32_t ticks) { now_ms = ticks; return osOK; }
+int xTaskGetSchedulerState(void) { return taskSCHEDULER_RUNNING; }
+TickType_t xTaskGetTickCount(void) { return now_ms; }
+SemaphoreHandle_t xSemaphoreCreateBinary(void)
+{ signals = 0U; return &signals; }
+BaseType_t xSemaphoreGiveFromISR(SemaphoreHandle_t id, BaseType_t *wake)
+{ (void)id; signals = 1U; *wake = pdFALSE; return pdTRUE; }
+BaseType_t xTaskCreate(void (*entry)(void *), const char *name, uint32_t stack,
+                       void *arg, uint32_t priority, TaskHandle_t *handle)
+{ (void)entry; (void)name; (void)stack; (void)arg; (void)priority; if (handle) *handle = &uart; return pdPASS; }
+void vTaskDelay(TickType_t ticks) { now_ms += ticks; }
+void vTaskDelayUntil(TickType_t *last_wake, TickType_t period)
+{ *last_wake += period; now_ms = *last_wake; }
 
 /** @brief 推进模拟中断，覆盖迟到数据、帧内间隔、无应答及硬件错误。 */
-osStatus_t osSemaphoreAcquire(osSemaphoreId_t id, uint32_t ticks)
+BaseType_t xSemaphoreTake(SemaphoreHandle_t id, TickType_t ticks)
 {
     (void)id;
     for (uint32_t i = 0; ; ++i) {
-        if (signals) { signals = 0; return osOK; }
-        if (i == ticks) return -1;
+        if (signals) { signals = 0; return pdTRUE; }
+        if (i == ticks) return pdFALSE;
         ++now_ms;
         mock_dwt.CYCCNT = now_ms * 480000U;
         if (noise && receive_target) {
@@ -47,7 +48,7 @@ osStatus_t osSemaphoreAcquire(osSemaphoreId_t id, uint32_t ticks)
                 pending = false;
                 Modbus_UartError(&uart);
             } else if (response_index < response_length && receive_target) {
-                assert(direction == GPIO_PIN_RESET);
+                assert(de_state == GPIO_PIN_RESET && re_state == GPIO_PIN_RESET);
                 *receive_target = response[response_index++];
                 receive_target = NULL;
                 Modbus_RxComplete(&uart);
@@ -59,7 +60,13 @@ osStatus_t osSemaphoreAcquire(osSemaphoreId_t id, uint32_t ticks)
 
 /** @brief 模拟方向引脚和UART中断接口，发送开始及结束时校验方向。 */
 void HAL_GPIO_WritePin(void *port, uint16_t pin, uint32_t state)
-{ (void)port; (void)pin; direction = state; }
+{
+    assert(port == Modbus_DE_GPIO_Port);
+    if (pin == Modbus_DE_Pin) de_state = state;
+    else if (pin == Modbus_RE_Pin) re_state = state;
+    else assert(0);
+    assert(!(de_state == GPIO_PIN_SET && re_state == GPIO_PIN_RESET));
+}
 HAL_StatusTypeDef HAL_UART_Receive_IT(UART_HandleTypeDef *u, uint8_t *data, uint16_t count)
 { (void)u; assert(count == 1U); if (fail_rx) return HAL_ERROR; receive_target = data; return HAL_OK; }
 HAL_StatusTypeDef HAL_UART_AbortReceive(UART_HandleTypeDef *u)
@@ -68,14 +75,15 @@ HAL_StatusTypeDef HAL_UART_Abort(UART_HandleTypeDef *u)
 { pending = false; return HAL_UART_AbortReceive(u); }
 HAL_StatusTypeDef HAL_UART_Transmit_IT(UART_HandleTypeDef *u, const uint8_t *data, uint16_t count)
 {
-    assert(u == &uart && direction == GPIO_PIN_SET && count == 8U);
+    assert(u == &uart && de_state == GPIO_PIN_SET &&
+           re_state == GPIO_PIN_SET && count == 8U);
     assert(data[1] == 4U && data[2] == 0U && data[3] == 0U && data[5] == 2U);
     assert(data[6] == 0x71U && data[7] == (data[0] == 1U ? 0xCBU : 0xF8U));
     ++transmit_count;
     if (fail_tx) return HAL_ERROR;
     if (!omit_tc) {
         HAL_UART_TxCpltCallback(u);
-        assert(direction == GPIO_PIN_RESET);
+        assert(de_state == GPIO_PIN_RESET && re_state == GPIO_PIN_RESET);
         pending = true;
         next_byte_ms = now_ms + 2U;
     }
@@ -110,7 +118,8 @@ static void expect_error(ModbusStatus expected)
     uint32_t start = now_ms;
     assert(ModbusSensor_Read(1U, &temperature, &humidity) == expected);
     assert(temperature == -123 && humidity == 456U);
-    assert(!bus_busy && !receive_target && !pending && direction == GPIO_PIN_RESET);
+    assert(!bus_busy && !receive_target && !pending &&
+           de_state == GPIO_PIN_RESET && re_state == GPIO_PIN_RESET);
     assert((uint32_t)(now_ms - start) <= 200U);
 }
 

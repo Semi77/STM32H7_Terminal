@@ -29,7 +29,7 @@ typedef struct {
 bool Modbus_GetDiagnostics(uint8_t address, ModbusDiagnostics *diagnostics);
 
 /**
-  * @brief 绑定9600、8N1的USART2和PA0收发控制，在内核初始化后调用一次。
+  * @brief 绑定9600、8N1的USART2及PA0-DE、PA1-RE控制，在内核初始化后调用一次。
   * @param uart 已完成硬件初始化的USART2句柄。
   * @retval true表示初始化成功，false表示参数或资源错误。
   */

@@ -2,8 +2,10 @@
 #include <string.h>
 #include "esp_event.h"
 #include "esp_wifi.h"
+#include "esp_netif_sntp.h"
 #include "h7_uart.h"
 #include <stdio.h>
+#include <time.h>
 #include "esp_log.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -54,6 +56,7 @@ static TickType_t latest_tick;
 static bool has_sample;
 static atomic_uint boot_reply_tick;
 static atomic_int boot_reply;
+static atomic_bool stm_bootloader_active;
 
 
 /**
@@ -77,13 +80,18 @@ static void accept_line(const char *line)
         int state=strcmp(line,"BOOT_READY")==0?1:strcmp(line,"APP_STARTING")==0?2:-1;
         atomic_store(&boot_reply_tick, xTaskGetTickCount());
         atomic_store(&boot_reply, state);
+        if (state == 1) atomic_store(&stm_bootloader_active, true);
+        else if (state == 2) atomic_store(&stm_bootloader_active, false);
         /* 按命令过滤确认，周期BOOT_READY不能覆盖App的接受或拒绝结果。 */
         int expected=atomic_load(&page_expected);
         if (page_replies && expected && (state==expected || state<0))
             (void)xQueueOverwrite(page_replies,&state);
         return;
     }
-    if (strcmp(line, "BOOT_ACCEPTED") == 0) return;
+    if (strcmp(line, "BOOT_ACCEPTED") == 0) {
+        atomic_store(&stm_bootloader_active, true);
+        return;
+    }
     unsigned long seq, temperature, humidity, brightness;
     int end = 0;
     int fields = sscanf(line,
@@ -96,6 +104,7 @@ static void accept_line(const char *line)
     }
     h7_sample_t sample = {seq, temperature, humidity, brightness};
     atomic_store(&boot_reply, 0);
+    atomic_store(&stm_bootloader_active, false);
     portENTER_CRITICAL(&status_lock);
     latest_sample = sample;
     latest_tick = xTaskGetTickCount();
@@ -308,5 +317,43 @@ esp_err_t h7_uart_start_heartbeat(void)
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, network_event, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_LOST_IP, network_event, NULL));
     return xTaskCreate(heartbeat_task, "h7_heartbeat", 2048, NULL, 5, NULL)
+           == pdPASS ? ESP_OK : ESP_ERR_NO_MEM;
+}
+
+/**
+  * @brief 等待首次SNTP校时成功，再每分钟经UART发送一次UTC秒数。
+  * @param arg 未使用的任务参数。
+  * @retval 无，任务持续运行。
+  */
+static void time_sync_task(void *arg)
+{
+    (void)arg;
+    while (esp_netif_sntp_sync_wait(pdMS_TO_TICKS(10000)) != ESP_OK) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    for (;;) {
+        time_t now = time(NULL);
+        if (!atomic_load(&stm_bootloader_active) &&
+            now >= 1704067200LL && (uint64_t)now <= UINT32_MAX) {
+            char line[24];
+            int length = snprintf(line, sizeof(line), "TIME:%lu\r\n", (unsigned long)(uint32_t)now);
+            if (length > 0 && length < (int)sizeof(line)) {
+                (void)uart_write_bytes(H7_UART_PORT, line, (size_t)length);
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(60000));
+    }
+}
+
+/**
+  * @brief 启动SNTP网络校时及向STM32发送时间的任务。
+  * @retval ESP_OK表示任务已启动，其他值表示初始化失败。
+  */
+esp_err_t h7_uart_start_time_sync(void)
+{
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+    esp_err_t status = esp_netif_sntp_init(&config);
+    if (status != ESP_OK) return status;
+    return xTaskCreate(time_sync_task, "h7_time", 3072, NULL, 5, NULL)
            == pdPASS ? ESP_OK : ESP_ERR_NO_MEM;
 }

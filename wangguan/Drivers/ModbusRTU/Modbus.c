@@ -1,14 +1,14 @@
 #include "Modbus.h"
 #include "main.h"
-#include "cmsis_os2.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "semphr.h"
 
 #define MODBUS_MAX_REGISTERS 16U
 #define MODBUS_QUIET_MS 6U
 
 static UART_HandleTypeDef *bus_uart;
-static osSemaphoreId_t bus_event;
+static SemaphoreHandle_t bus_event;
 static volatile bool bus_busy, tx_complete, uart_failed, frame_failed;
 static volatile uint16_t rx_length;
 static volatile uint16_t rx_seen;
@@ -18,6 +18,22 @@ static uint8_t rx_byte;
 static uint8_t rx_frame[5U + 2U * MODBUS_MAX_REGISTERS];
 static ModbusDiagnostics last_diagnostics[2];
 static bool diagnostics_ready[2];
+
+/**
+  * @brief 切换MAX485的DE和低电平有效的RE，发送时关闭接收、接收时释放总线。
+  * @param transmit true为发送方向，false为接收方向。
+  * @retval 无。
+  */
+static void Modbus_SetTransmit(bool transmit)
+{
+    if (transmit) {
+        HAL_GPIO_WritePin(Modbus_RE_GPIO_Port, Modbus_RE_Pin, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(Modbus_DE_GPIO_Port, Modbus_DE_Pin, GPIO_PIN_SET);
+    } else {
+        HAL_GPIO_WritePin(Modbus_DE_GPIO_Port, Modbus_DE_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(Modbus_RE_GPIO_Port, Modbus_RE_Pin, GPIO_PIN_RESET);
+    }
+}
 
 /**
   * @brief 复制站号1或2最近一次事务的发送与接收状态。
@@ -87,7 +103,7 @@ bool Modbus_Init(UART_HandleTypeDef *uart)
         uart->Init.Parity != UART_PARITY_NONE || uart->Init.StopBits != UART_STOPBITS_1 ||
         SystemCoreClock < 1000000U) return false;
     if (bus_uart) return bus_uart == uart;
-    bus_event = osSemaphoreNew(1U, 0U, NULL);
+    bus_event = xSemaphoreCreateBinary();
     if (!bus_event) return false;
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->LAR = 0xC5ACCE55UL;
@@ -95,7 +111,7 @@ bool Modbus_Init(UART_HandleTypeDef *uart)
     /* 相邻字节完成时刻之差包含一个字符，加1.5字符空闲共25个位时间。 */
     max_byte_gap_cycles = (SystemCoreClock / 9600U) * 25U;
     bus_uart = uart;
-    HAL_GPIO_WritePin(Modbus_Enable_GPIO_Port, Modbus_Enable_Pin, GPIO_PIN_RESET);
+    Modbus_SetTransmit(false);
     return true;
 }
 
@@ -118,7 +134,9 @@ void Modbus_RxComplete(UART_HandleTypeDef *uart)
     }
     last_rx_cycles = cycles;
     if (HAL_UART_Receive_IT(uart, &rx_byte, 1U) != HAL_OK) uart_failed = true;
-    (void)osSemaphoreRelease(bus_event);
+    BaseType_t wake = pdFALSE;
+    (void)xSemaphoreGiveFromISR(bus_event, &wake);
+    portYIELD_FROM_ISR(wake);
 }
 
 /**
@@ -130,8 +148,10 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *uart)
 {
     if (!bus_uart || uart != bus_uart || !bus_busy) return;
     tx_complete = true;
-    HAL_GPIO_WritePin(Modbus_Enable_GPIO_Port, Modbus_Enable_Pin, GPIO_PIN_RESET);
-    (void)osSemaphoreRelease(bus_event);
+    Modbus_SetTransmit(false);
+    BaseType_t wake = pdFALSE;
+    (void)xSemaphoreGiveFromISR(bus_event, &wake);
+    portYIELD_FROM_ISR(wake);
 }
 
 /**
@@ -143,7 +163,9 @@ void Modbus_UartError(UART_HandleTypeDef *uart)
 {
     if (!bus_uart || uart != bus_uart || !bus_busy) return;
     uart_failed = true;
-    (void)osSemaphoreRelease(bus_event);
+    BaseType_t wake = pdFALSE;
+    (void)xSemaphoreGiveFromISR(bus_event, &wake);
+    portYIELD_FROM_ISR(wake);
 }
 
 /**
@@ -158,7 +180,7 @@ ModbusStatus Modbus_ReadInputRegisters(uint8_t address, uint16_t start,
     if (!bus_uart || !values || !address || address > 247U || !count ||
         count > MODBUS_MAX_REGISTERS || (uint32_t)start + count > 65536U ||
         timeout_ms < 20U || timeout_ms > 1000U ||
-        osKernelGetState() != osKernelRunning || __get_IPSR() != 0U)
+        xTaskGetSchedulerState() != taskSCHEDULER_RUNNING || __get_IPSR() != 0U)
         return MODBUS_ARGUMENT_ERROR;
 
     taskENTER_CRITICAL();
@@ -179,12 +201,12 @@ ModbusStatus Modbus_ReadInputRegisters(uint8_t address, uint16_t start,
     rx_length = 0U;
     rx_seen = 0U;
     last_rx_ms = begin;
-    while (osSemaphoreAcquire(bus_event, 0U) == osOK) {}
+    while (xSemaphoreTake(bus_event, 0U) == pdTRUE) {}
     (void)HAL_UART_Abort(bus_uart);
     __HAL_UART_CLEAR_FLAG(bus_uart, UART_CLEAR_OREF | UART_CLEAR_NEF |
                                    UART_CLEAR_FEF | UART_CLEAR_PEF);
     __HAL_UART_SEND_REQ(bus_uart, UART_RXDATA_FLUSH_REQUEST);
-    HAL_GPIO_WritePin(Modbus_Enable_GPIO_Port, Modbus_Enable_Pin, GPIO_PIN_RESET);
+    Modbus_SetTransmit(false);
     if (HAL_UART_Receive_IT(bus_uart, &rx_byte, 1U) != HAL_OK) uart_failed = true;
 
     while ((uint32_t)(HAL_GetTick() - begin) < timeout_ms) {
@@ -192,7 +214,7 @@ ModbusStatus Modbus_ReadInputRegisters(uint8_t address, uint16_t start,
         /* 收发前后均等待至少6毫秒静默，保守覆盖9600、8N1的3.5字符间隔。 */
         if ((uint32_t)(HAL_GetTick() - last_rx_ms) >= MODBUS_QUIET_MS) {
             if (!sent) {
-                HAL_GPIO_WritePin(Modbus_Enable_GPIO_Port, Modbus_Enable_Pin, GPIO_PIN_SET);
+                Modbus_SetTransmit(true);
                 if (HAL_UART_Transmit_IT(bus_uart, request, sizeof(request)) != HAL_OK) {
                     result = MODBUS_UART_ERROR;
                     break;
@@ -209,13 +231,13 @@ ModbusStatus Modbus_ReadInputRegisters(uint8_t address, uint16_t start,
         if (elapsed >= timeout_ms) break;
         uint32_t wait_ms = timeout_ms - elapsed;
         if (wait_ms > MODBUS_QUIET_MS) wait_ms = MODBUS_QUIET_MS;
-        uint32_t ticks = (wait_ms * osKernelGetTickFreq() + 999U) / 1000U;
-        (void)osSemaphoreAcquire(bus_event, ticks ? ticks : 1U);
+        TickType_t ticks = (TickType_t)(((uint64_t)wait_ms * configTICK_RATE_HZ + 999U) / 1000U);
+        (void)xSemaphoreTake(bus_event, ticks ? ticks : 1U);
     }
 
     /* 超时也中止发送，确保异步传输不再引用栈上的请求数组。 */
     (void)HAL_UART_Abort(bus_uart);
-    HAL_GPIO_WritePin(Modbus_Enable_GPIO_Port, Modbus_Enable_Pin, GPIO_PIN_RESET);
+    Modbus_SetTransmit(false);
     taskENTER_CRITICAL();
     if (address <= 2U) {
         last_diagnostics[address - 1U].tx_started = sent;

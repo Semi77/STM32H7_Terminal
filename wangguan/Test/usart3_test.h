@@ -34,4 +34,19 @@ HAL_StatusTypeDef Usart3Test_Start(UART_HandleTypeDef *huart);
   */
 bool Usart3Test_IsOnline(void);
 
+/**
+  * @brief 获取ESP32最近一次网络校准的UTC秒数和接收时刻。
+  * @param utc_seconds 输出自1970年以来的UTC秒数。
+  * @param received_tick_ms 输出STM32接收时的毫秒计数。
+  * @retval true表示已有有效网络时间，false表示尚未校时或参数无效。
+  */
+bool Usart3Test_GetNetworkTime(uint32_t *utc_seconds, uint32_t *received_tick_ms);
+
+/**
+  * @brief 获取最近一次有效上位机页面指令的接收时刻。
+  * @param tick_ms 接收时刻的输出指针，单位毫秒。
+  * @retval true表示已收到页面指令，false表示尚未收到或参数无效。
+  */
+bool Usart3Test_GetUserCommandTick(uint32_t *tick_ms);
+
 #endif
